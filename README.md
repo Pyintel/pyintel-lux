@@ -2,7 +2,9 @@
 
 > Open binary telemetry standard — zero-copy, sub-kilobyte observability from bare-metal microcontrollers to web dashboards.
 
-**Short-form:** `lux` | **Sync magic:** `0x4C 0x58` (`LX`) | **Status:** R&D / Pre-Alpha
+**Short-form:** `lux` | **Sync magic:** `0x4C 0x58` (`LX`) | **Status:** In Production
+
+> This project is still in active development. Contributions are welcome — open an issue, start a discussion, or submit a PR.
 
 ---
 
