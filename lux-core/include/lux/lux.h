@@ -17,7 +17,7 @@ extern "C" {
 /* ── Wire constants ─────────────────────────────────────────────────── */
 #define LUX_SYNC_0       0x4C   /* 'L' */
 #define LUX_SYNC_1       0x58   /* 'X' */
-#define LUX_HEADER_SIZE  12
+#define LUX_HEADER_SIZE  14
 
 /* ── Reserved system symbol IDs ─────────────────────────────────────── */
 #define LUX_SYM_HEARTBEAT        0x0001
@@ -47,27 +47,34 @@ typedef enum {
 
 /* ── Frame header struct (maps directly onto wire bytes) ─────────────── */
 typedef struct __attribute__((packed)) {
-    uint8_t  sync[2];        /* 0x4C 0x58                        */
+    uint8_t  sync[2];        /* 0x4C 0x58                         */
+    uint16_t seq_num;        /* monotonic sequence counter        */
     uint16_t symbol_id;      /* compile-time token (little-endian)*/
     uint32_t timestamp_us;   /* monotonic µs clock                */
-    uint8_t  payload_type;   /* lux_payload_type_t               */
-    uint8_t  payload_len;    /* bytes following this header       */
-    uint16_t crc16;          /* CRC-16/CCITT over bytes [0..9]   */
+    uint8_t  payload_type;   /* lux_payload_type_t                */
+    uint8_t  payload_len;    /* bytes following this header        */
+    uint16_t crc16;          /* CRC-16/CCITT over bytes [0..11]   */
 } lux_frame_header_t;
 
 /* ── Transport write callback (user-provided) ────────────────────────── */
 typedef lux_status_t (*lux_write_fn)(const uint8_t *buf, size_t len, void *ctx);
 
+#define LUX_TX_BUFFER_SIZE  256
+
 /* ── Context ─────────────────────────────────────────────────────────── */
 typedef struct {
-    lux_write_fn write;        /* platform transport write function */
-    void        *write_ctx;    /* passed through to write()         */
-    uint32_t   (*get_time_us)(void); /* monotonic µs clock source   */
+    lux_write_fn write;         /* platform transport write function */
+    void        *write_ctx;     /* passed through to write()         */
+    uint32_t   (*get_time_us)(void); /* monotonic µs clock source    */
+    uint16_t     seq_num;       /* monotonic sequence counter        */
+    uint8_t      tx_buf[LUX_TX_BUFFER_SIZE]; /* internal batch buffer*/
+    size_t       tx_buf_len;    /* bytes queued in tx_buf            */
 } lux_ctx_t;
 
 /* ── API ─────────────────────────────────────────────────────────────── */
 lux_status_t lux_init(lux_ctx_t *ctx, lux_write_fn write, void *write_ctx,
                        uint32_t (*get_time_us)(void));
+lux_status_t lux_flush(lux_ctx_t *ctx);
 
 lux_status_t lux_emit_none(lux_ctx_t *ctx, uint16_t symbol_id);
 lux_status_t lux_emit_u8  (lux_ctx_t *ctx, uint16_t symbol_id, uint8_t  val);

@@ -42,6 +42,15 @@ pyintel-lux/
 
 ---
 
+## Technical Blog & Empirical Benchmarks
+
+- ✍️ **[Technical Blog Post](research/BLOG.md)** — *Building Lux: A Microsecond-Latency Binary Telemetry Engine for Microcontrollers*
+- 📖 **[Research Overview & Results](research/README.md)** — Empirical hardware benchmarks across UART and Wi-Fi UDP.
+- ⚡ **[Phase 1 — UART Emit](research/esp32/phase1-uart-emit/README.md)** — Hardware emission over USB-Serial (@ 115,200 baud).
+- 📡 **[Phase 2 — UDP Stream over Wi-Fi](research/esp32/phase2-udp-stream/README.md)** — Wireless UDP broadcast telemetry with sequence loss tracking.
+
+---
+
 ## Quickstart — ESP32 Research Lab
 
 See [`research/README.md`](research/README.md) for the ordered research plan with two ESP32 boards.

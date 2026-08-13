@@ -1,20 +1,19 @@
 """
-Phase 1 Host Decoder — reads Lux binary frames from a serial COM port.
-Logs telemetric benchmark data to CSV with arrival timestamps, inter-frame latency (ms),
-clock delta, moving average FPS, and byte throughput.
+Phase 2 Host UDP Decoder — reads Lux binary frames over Wi-Fi (UDP).
+Streams scientific telemetry to CSV and runs statistical analysis.
 
-Usage: python decode.py --port COM9 --baud 115200 [--csv telemetry.csv]
+Usage: python host/udp_decode.py [--port 4210] [--duration 30] [--csv lux_udp_telemetry.csv]
 Deps:  pip install pyserial rich
 """
 
 import argparse
 import csv
+import socket
 import struct
 import subprocess
 import sys
 import time
 from datetime import datetime
-import serial
 from rich.console import Console
 
 SYNC = b'\x4C\x58'  # 'LX'
@@ -64,60 +63,62 @@ def decode_payload(ptype: int, plen: int, data: bytes):
         return struct.unpack(fmt, data[:size])[0]
     return data.hex()
 
-def read_frame(port: serial.Serial):
-    buf = b''
-    while True:
-        b = port.read(1)
-        if not b:
-            return None
-        buf += b
-        if buf[-2:] == SYNC:
+def parse_lux_packet(packet_bytes: bytes):
+    if len(packet_bytes) < HEADER_SIZE:
+        return []
+
+    frames = []
+    offset = 0
+
+    while offset < len(packet_bytes):
+        # Look for LX magic
+        idx = packet_bytes.find(SYNC, offset)
+        if idx == -1 or (len(packet_bytes) - idx) < HEADER_SIZE:
             break
-        if len(buf) > 4096:
-            buf = b''
 
-    rest = port.read(HEADER_SIZE - 2)
-    if len(rest) < HEADER_SIZE - 2:
-        return None
+        header_bytes = packet_bytes[idx:idx + HEADER_SIZE]
+        seq_num  = struct.unpack_from("<H", header_bytes, 2)[0]
+        sym_id   = struct.unpack_from("<H", header_bytes, 4)[0]
+        ts_us    = struct.unpack_from("<I", header_bytes, 6)[0]
+        ptype    = header_bytes[10]
+        plen     = header_bytes[11]
+        crc_recv = struct.unpack_from("<H", header_bytes, 12)[0]
 
-    header_bytes = SYNC + rest
-    seq_num  = struct.unpack_from("<H", header_bytes, 2)[0]
-    sym_id   = struct.unpack_from("<H", header_bytes, 4)[0]
-    ts_us    = struct.unpack_from("<I", header_bytes, 6)[0]
-    ptype    = header_bytes[10]
-    plen     = header_bytes[11]
-    crc_recv = struct.unpack_from("<H", header_bytes, 12)[0]
+        crc_calc = crc16_ccitt(header_bytes[:12])
+        crc_ok   = crc_calc == crc_recv
 
-    crc_calc = crc16_ccitt(header_bytes[:12])
-    crc_ok   = crc_calc == crc_recv
+        payload_offset = idx + HEADER_SIZE
+        payload_data = packet_bytes[payload_offset:payload_offset + plen]
+        payload_val  = decode_payload(ptype, plen, payload_data)
+        frame_size_bytes = HEADER_SIZE + plen
 
-    payload_data = port.read(plen) if plen > 0 else b''
-    payload_val  = decode_payload(ptype, plen, payload_data)
-    frame_size_bytes = HEADER_SIZE + plen
+        frames.append({
+            "seq_num":    seq_num,
+            "sym_id":     sym_id,
+            "sym_name":   symbol_name(sym_id),
+            "ts_us":      ts_us,
+            "ptype":      PAYLOAD_TYPES.get(ptype, ("?",))[0],
+            "payload":    payload_val,
+            "crc_ok":     crc_ok,
+            "frame_size": frame_size_bytes,
+        })
 
-    return {
-        "seq_num":    seq_num,
-        "sym_id":     sym_id,
-        "sym_name":   symbol_name(sym_id),
-        "ts_us":      ts_us,
-        "ptype":      PAYLOAD_TYPES.get(ptype, ("?",))[0],
-        "payload":    payload_val,
-        "crc_ok":     crc_ok,
-        "frame_size": frame_size_bytes,
-    }
+        offset = payload_offset + plen
+
+    return frames
 
 def main():
-    parser = argparse.ArgumentParser(description="Pyintel Lux — Phase 1 Scientific UART Decoder & Benchmark Logger")
-    parser.add_argument("--port", default="COM9", help="Serial port")
-    parser.add_argument("--baud", type=int, default=115200, help="Baud rate")
-    parser.add_argument("--csv",  default="lux_telemetry.csv", help="CSV log filename")
-    parser.add_argument("--duration", type=float, default=10.0, help="Logging duration in seconds (default 10s, set 0 for continuous)")
+    parser = argparse.ArgumentParser(description="Pyintel Lux — Phase 2 Scientific UDP Decoder & Benchmark Logger")
+    parser.add_argument("--host", default="0.0.0.0", help="Listen address")
+    parser.add_argument("--port", type=int, default=4210, help="UDP Port")
+    parser.add_argument("--duration", type=float, default=30.0, help="Logging duration in seconds (0 for infinite)")
+    parser.add_argument("--csv", default="lux_udp_telemetry.csv", help="CSV log output filename")
     args = parser.parse_args()
 
     console = Console()
-    console.print(f"[bold cyan]Pyintel Lux[/bold cyan] — Phase 1 Scientific UART Decoder & Benchmark Logger")
+    console.print(f"[bold cyan]Pyintel Lux[/bold cyan] — Phase 2 Scientific UDP Decoder & Benchmark Logger")
     duration_str = f"{args.duration}s" if args.duration > 0 else "continuous"
-    console.print(f"Listening on [yellow]{args.port}[/yellow] @ {args.baud} baud | Duration: [bold magenta]{duration_str}[/bold magenta] | Logging to [bold green]{args.csv}[/bold green]\n")
+    console.print(f"Listening on UDP [yellow]{args.host}:{args.port}[/yellow] | Duration: [bold magenta]{duration_str}[/bold magenta] | CSV: [bold green]{args.csv}[/bold green]\n")
 
     fieldnames = [
         "frame_index",
@@ -143,27 +144,35 @@ def main():
     writer.writeheader()
     csv_file.flush()
 
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind((args.host, args.port))
+    sock.settimeout(1.0)
+
     last_recv_time = None
     last_esp_ts = None
     last_seq_num = None
-    frame_timestamps = []  # Sliding window of PC receive times for moving FPS
+    frame_timestamps = []
     window_size = 20
+    frame_count = 0
     start_time = time.time()
 
-    with serial.Serial(args.port, args.baud, timeout=1) as port:
-        frame_count = 0
-        try:
-            while True:
-                now = time.time()
-                if args.duration > 0 and (now - start_time) >= args.duration:
-                    console.print(f"\n[bold green]Completed {args.duration}s capture session.[/bold green]")
-                    break
+    try:
+        while True:
+            now = time.time()
+            if args.duration > 0 and (now - start_time) >= args.duration:
+                console.print(f"\n[bold green]Completed {args.duration}s UDP capture session.[/bold green]")
+                break
 
-                recv_time = now
-                frame = read_frame(port)
-                if frame is None:
-                    continue
+            try:
+                data, addr = sock.recvfrom(2048)
+            except socket.timeout:
+                continue
 
+            recv_time = time.time()
+            frames = parse_lux_packet(data)
+
+            for frame in frames:
                 frame_count += 1
                 iso_ts = datetime.fromtimestamp(recv_time).isoformat()
 
@@ -173,7 +182,6 @@ def main():
                 if seq_delta < 0:
                     seq_delta += 65536
 
-                # Delay / FPS computation
                 inter_frame_delay_ms = (recv_time - last_recv_time) * 1000.0 if last_recv_time else 0.0
                 instant_fps = (1.0 / (recv_time - last_recv_time)) if (last_recv_time and recv_time > last_recv_time) else 0.0
                 
@@ -188,7 +196,7 @@ def main():
 
                 esp_ts = frame["ts_us"]
                 esp_ts_delta = (esp_ts - last_esp_ts) if last_esp_ts is not None else 0
-                if esp_ts_delta < 0: # handle uint32 wrap
+                if esp_ts_delta < 0:
                     esp_ts_delta += 0xFFFFFFFF + 1
 
                 last_recv_time = recv_time
@@ -228,12 +236,13 @@ def main():
                     f"loss={drop_str} "
                     f"crc={crc_str}"
                 )
-        except KeyboardInterrupt:
-            console.print("\n[bold yellow]Logging stopped by user.[/bold yellow]")
-        finally:
-            csv_file.close()
+    except KeyboardInterrupt:
+        console.print("\n[bold yellow]Logging stopped by user.[/bold yellow]")
+    finally:
+        sock.close()
+        csv_file.close()
 
-    # Automatically invoke statistics script on completion
+    # Launch stats script automatically
     stats_script = str(sys.modules['os'].path.abspath(sys.modules['os'].path.join(sys.modules['os'].path.dirname(__file__), "../../../host/stats.py")))
     console.print(f"\n[bold cyan]Launching benchmark stats analyzer ([green]{stats_script}[/green])...[/bold cyan]\n")
     subprocess.run([sys.executable, stats_script, "--csv", args.csv])

@@ -60,6 +60,9 @@ void app_main(void) {
         /* Emit app counter */
         lux_emit_u32(&lux, SYM_APP_COUNTER, counter++);
 
+        /* Flush batch buffer to UART */
+        lux_flush(&lux);
+
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
