@@ -1,0 +1,41 @@
+# Build outputs
+target/
+dist/
+build/
+*.o
+*.a
+*.elf
+*.bin
+*.hex
+*.map
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+venv/
+
+# Rust
+Cargo.lock
+target/
+
+# Node / TypeScript
+node_modules/
+*.js.map
+dist/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# ESP-IDF
+sdkconfig
+sdkconfig.old
+dependencies.lock
+managed_components/
+
+# Generated
+symbols.json
+*.lux.dict
