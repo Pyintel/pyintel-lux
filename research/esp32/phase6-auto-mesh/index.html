@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Pyintel Lux — Dynamic Adaptive Transport Mesh Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+    body { background: #0b0f19; color: #f8fafc; padding: 20px; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid #1e293b; }
+    h1 { font-size: 1.5rem; color: #38bdf8; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+    
+    .status-badge { padding: 6px 14px; border-radius: 20px; font-weight: 600; font-size: 0.85rem; }
+    .connected { background: #059669; color: #ecfdf5; }
+    .disconnected { background: #dc2626; color: #fef2f2; }
+
+    /* Transport Topology Indicator Banner */
+    .topology-banner { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 25px; }
+    .node-card { background: #1e293b; padding: 20px; border-radius: 12px; border: 2px solid #334155; text-align: center; position: relative; transition: all 0.3s ease; }
+    .node-card.active-path { border-color: #38bdf8; box-shadow: 0 0 20px rgba(56, 189, 248, 0.3); background: #0f2744; }
+    .node-title { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+    .node-name { font-size: 1.3rem; font-weight: 700; color: #f1f5f9; margin-bottom: 6px; }
+    .node-sub { font-size: 0.85rem; color: #64748b; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
+    .card { background: #1e293b; padding: 16px; border-radius: 10px; border: 1px solid #334155; }
+    .card-title { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+    .card-value { font-size: 1.5rem; font-weight: 700; color: #f1f5f9; }
+
+    .chart-container { background: #1e293b; padding: 20px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 20px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { text-align: left; padding: 10px; border-bottom: 1px solid #334155; font-size: 0.85rem; }
+    th { color: #94a3b8; }
+    .badge { padding: 4px 8px; border-radius: 6px; font-weight: 600; font-size: 0.75rem; }
+    .bg-uart { background: #ea580c; color: #fff; }
+    .bg-espnow { background: #0284c7; color: #fff; }
+    .bg-udp { background: #9333ea; color: #fff; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>⚡ Lux Adaptive Transport Mesh — Real-Time Visualizer</h1>
+    <div id="ws-status" class="status-badge disconnected">Disconnected</div>
+  </header>
+
+  <!-- Live Dynamic Transport Topology Indicator -->
+  <div class="topology-banner">
+    <div id="node-uart" class="node-card">
+      <div class="node-title">Wired Proximity (0–0.5m)</div>
+      <div class="node-name">🔌 RX/TX UART Serial</div>
+      <div class="node-sub">Direct Cable Link</div>
+    </div>
+    <div id="node-espnow" class="node-card">
+      <div class="node-title">Medium Range (0.5m–30m)</div>
+      <div class="node-name">📡 ESP-NOW P2P Mesh</div>
+      <div class="node-sub">Zero-Router 802.11 Link</div>
+    </div>
+    <div id="node-udp" class="node-card">
+      <div class="node-title">Far Range / Infrastructure</div>
+      <div class="node-name">🌐 Wi-Fi UDP Broadcast</div>
+      <div class="node-sub">AP Router Network</div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card-title">Active Active Path</div>
+      <div id="stat-active-mode" class="card-value" style="color: #38bdf8;">SEARCHING...</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Signal RSSI Quality</div>
+      <div id="stat-rssi" class="card-value">—</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Ingested Frame Count</div>
+      <div id="stat-count" class="card-value">0</div>
+    </div>
+    <div class="card">
+      <div class="card-title">CRC Reliability</div>
+      <div id="stat-crc" class="card-value">100%</div>
+    </div>
+  </div>
+
+  <div class="chart-container">
+    <canvas id="telemetryChart" height="80"></canvas>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Live Transport Switch Log</div>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Seq</th>
+          <th>Physical Ingest Path</th>
+          <th>Active Transport Mode</th>
+          <th>Signal RSSI</th>
+          <th>Symbol Name</th>
+          <th>Value</th>
+          <th>CRC</th>
+        </tr>
+      </thead>
+      <tbody id="log-body">
+        <tr><td colspan="8" style="color: #64748b;">Waiting for incoming adaptive mesh telemetry stream...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    const SYNC = 0x584C;
+    const HEADER_SIZE = 14;
+
+    const TRANSPORT_NAMES = {
+      0: "UART Serial",
+      1: "ESP-NOW Mesh",
+      2: "Wi-Fi UDP Broadcast"
+    };
+
+    const SYSTEM_SYMBOLS = {
+      0x0001: "LUX_SYM_HEARTBEAT",
+      0x0004: "LUX_SYM_TRANSPORT_SWITCH",
+      0x0005: "LUX_SYM_SIGNAL_RSSI",
+      0x0100: "APP_UPTIME",
+      0x0101: "APP_COUNTER"
+    };
+
+    function crc16_ccitt(buffer) {
+      let crc = 0xFFFF;
+      const bytes = new Uint8Array(buffer);
+      for (let i = 0; i < 12; i++) {
+        crc ^= bytes[i] << 8;
+        for (let j = 0; j < 8; j++) {
+          crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF;
+        }
+      }
+      return crc;
+    }
+
+    // Chart.js Setup
+    const ctx = document.getElementById('telemetryChart').getContext('2d');
+    const chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Application Counter',
+          borderColor: '#38bdf8',
+          backgroundColor: 'rgba(56, 189, 248, 0.1)',
+          borderWidth: 2,
+          fill: true,
+          data: []
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } },
+          y: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } }
+        }
+      }
+    });
+
+    let totalPackets = 0;
+    let crcOkCount = 0;
+    let currentMode = -1;
+    let currentRssi = -50;
+
+    const wsStatus = document.getElementById('ws-status');
+    const logBody = document.getElementById('log-body');
+
+    function updateActiveNodeHighlight(mode) {
+      document.getElementById('node-uart').classList.remove('active-path');
+      document.getElementById('node-espnow').classList.remove('active-path');
+      document.getElementById('node-udp').classList.remove('active-path');
+
+      if (mode === 0) {
+        document.getElementById('node-uart').classList.add('active-path');
+        document.getElementById('stat-active-mode').textContent = "🔌 RX/TX UART Serial";
+      } else if (mode === 1) {
+        document.getElementById('node-espnow').classList.add('active-path');
+        document.getElementById('stat-active-mode').textContent = "📡 ESP-NOW P2P Mesh";
+      } else if (mode === 2) {
+        document.getElementById('node-udp').classList.add('active-path');
+        document.getElementById('stat-active-mode').textContent = "🌐 Wi-Fi UDP Broadcast";
+      }
+    }
+
+    const ws = new WebSocket('ws://localhost:8765');
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+      wsStatus.textContent = 'Live Connected (ws://localhost:8765)';
+      wsStatus.className = 'status-badge connected';
+    };
+
+    ws.onclose = () => {
+      wsStatus.textContent = 'Disconnected';
+      wsStatus.className = 'status-badge disconnected';
+    };
+
+    ws.onmessage = (event) => {
+      const raw = event.data;
+      const originTag = new Uint8Array(raw, 0, 1)[0]; // 1=UART, 2=UDP
+      const buffer = raw.slice(1);
+      const view = new DataView(buffer);
+
+      if (buffer.byteLength < HEADER_SIZE) return;
+
+      let offset = 0;
+      while (offset + HEADER_SIZE <= buffer.byteLength) {
+        const sync = view.getUint16(offset, true);
+        if (sync !== SYNC) {
+          offset++;
+          continue;
+        }
+
+        const seq_num = view.getUint16(offset + 2, true);
+        const symbol_id = view.getUint16(offset + 4, true);
+        const ts_us = view.getUint32(offset + 6, true);
+        const ptype = view.getUint8(offset + 10);
+        const plen = view.getUint8(offset + 11);
+        const crc_recv = view.getUint16(offset + 12, true);
+
+        const crc_calc = crc16_ccitt(buffer.slice(offset, offset + 12));
+        const crc_ok = crc_calc === crc_recv;
+
+        let payload_val = null;
+        if (plen === 4 && offset + HEADER_SIZE + 4 <= buffer.byteLength) {
+          payload_val = view.getUint32(offset + HEADER_SIZE, true);
+        } else if (plen === 1 && offset + HEADER_SIZE + 1 <= buffer.byteLength) {
+          payload_val = view.getUint8(offset + HEADER_SIZE);
+        }
+
+        totalPackets++;
+        if (crc_ok) crcOkCount++;
+
+        document.getElementById('stat-count').textContent = totalPackets;
+        document.getElementById('stat-crc').textContent = `${((crcOkCount / totalPackets) * 100).toFixed(1)}%`;
+
+        if (symbol_id === 0x0004 && payload_val !== null) {
+          currentMode = payload_val;
+          updateActiveNodeHighlight(currentMode);
+        } else if (symbol_id === 0x0005 && payload_val !== null) {
+          currentRssi = payload_val;
+          document.getElementById('stat-rssi').textContent = `${currentRssi} dBm`;
+        } else if (symbol_id === 0x0101 && payload_val !== null) {
+          const timeLabel = new Date().toLocaleTimeString();
+          chart.data.labels.push(timeLabel);
+          chart.data.datasets[0].data.push(payload_val);
+          if (chart.data.labels.length > 25) {
+            chart.data.labels.shift();
+            chart.data.datasets[0].data.shift();
+          }
+          chart.update();
+        }
+
+        const symName = SYSTEM_SYMBOLS[symbol_id] || `0x${symbol_id.toString(16).toUpperCase()}`;
+        const originName = originTag === 1 ? "UART Relay" : "Wi-Fi Direct";
+        const modeBadge = `<span class="badge ${currentMode===0?'bg-uart':currentMode===1?'bg-espnow':'bg-udp'}">${TRANSPORT_NAMES[currentMode] || 'Unknown'}</span>`;
+
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${totalPackets}</td>
+          <td>${seq_num}</td>
+          <td>${originName}</td>
+          <td>${modeBadge}</td>
+          <td>${currentRssi} dBm</td>
+          <td style="color:#38bdf8;">${symName}</td>
+          <td><b>${payload_val !== null ? payload_val : '—'}</b></td>
+          <td style="color:${crc_ok?'#34d399':'#f87171'}">${crc_ok?'OK':'FAIL'}</td>
+        `;
+
+        if (logBody.rows.length === 1 && logBody.rows[0].cells.length === 1) {
+          logBody.innerHTML = '';
+        }
+        logBody.insertBefore(row, logBody.firstChild);
+        if (logBody.rows.length > 12) logBody.removeChild(logBody.lastChild);
+
+        offset += HEADER_SIZE + plen;
+      }
+    };
+  </script>
+</body>
+</html>
