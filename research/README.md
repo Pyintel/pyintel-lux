@@ -125,18 +125,19 @@ UART emit          UDP stream         ESP-NOW Mesh       Host luxd    Web dashbo
 
 **Goal:** Build a minimal Python prototype of `luxd` — the eventual Rust ingest daemon. Receives Lux frames from any source, de-tokenizes using `symbols.json`, and writes to SQLite.
 
-**What you learn:**
-- How the symbol dictionary maps IDs back to human-readable names
-- How `luxd` will store telemetry for Grafana / dashboards
-- The shape of the eventual Rust `lux-bridge` implementation
+**Status:** ✅ **COMPLETE & FUNCTIONAL**
+
+**What you learn & Key Findings:**
+- **De-Tokenization Engine:** `symbols.json` maps 16-bit integer IDs (`0x0001`, `0x0101`) to human-readable strings on the host without wasting wire bandwidth on string bytes.
+- **Unified Transport Ingest:** `luxd_proto.py` ingests binary streams seamlessly across UART and UDP.
+- **SQLite Storage Pipeline:** Stores records in `telemetry.db` containing `seq_num`, `symbol_name`, `esp_timestamp_us`, `payload_type`, `payload_value`, and `crc_ok`.
 
 **Steps:**
-1. Run `lux-dict-gen` (manual step for now — write `symbols.json` by hand).
-2. Run `research/host/luxd-ingest/luxd_proto.py` — reads from UDP or serial.
-3. Watch `telemetry.db` fill with decoded rows.
-4. Open `telemetry.db` in DB Browser for SQLite and explore the data.
+1. Open `research/host/luxd-ingest/`.
+2. Run `python research/host/luxd-ingest/luxd_proto.py --transport uart --port COM9 --baud 115200 --duration 30` (or `--transport udp --port 4210`).
+3. Inspect saved records in `telemetry.db` using SQLite or DB Browser.
 
-**Success criteria:** SQLite contains rows with `symbol_name`, `timestamp_us`, `payload_value` for every frame emitted by the ESP32.
+**Success criteria:** SQLite database contains de-tokenized rows with `symbol_name`, `seq_num`, `esp_timestamp_us`, and `payload_value` for every incoming frame.
 
 **Directory:** `research/host/luxd-ingest/`
 
