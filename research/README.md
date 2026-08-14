@@ -40,10 +40,9 @@ pip install pyserial rich
 ## Phase Overview
 
 ```
-Phase 1 (DONE)  →  Phase 2 (DONE)  →  Phase 3 (DONE)  →  Phase 4  →  Phase 5
-UART emit          UDP stream         ESP-NOW Mesh       Host luxd    Web dashboard
-(1 board)         (1 board + PC)     (2 boards)         ingest        live Grafana
-                                                        proxy         or browser UI
+Phase 1 (DONE)  →  Phase 2 (DONE)  →  Phase 3 (DONE)  →  Phase 4 (DONE)  →  Phase 5 (DONE)  →  Phase 6 (READY)
+UART emit          UDP stream         ESP-NOW Mesh       Host luxd          Web dashboard       Auto-Transport
+(1 board)         (1 board + PC)     (2 boards)         ingest (SQLite)    live Chart UI       Selection Mesh
 ```
 
 ---
