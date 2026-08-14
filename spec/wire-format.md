@@ -17,23 +17,24 @@ Receivers scan the byte stream for this pattern to re-sync after noise or partia
 
 ---
 
-## 2. Fixed Frame Header (12 bytes)
+## 2. Fixed Frame Header (14 bytes)
 
 ```
 Offset  Size   Field              Description
 ------  ----   -----------------  -------------------------------------------
-0       2B     Sync               0x4C 0x58 magic
-2       2B     Symbol ID          Compile-time token (little-endian uint16)
-4       4B     Timestamp (µs)     Monotonic microsecond clock (little-endian uint32)
-8       1B     Payload Type       Enum: 0x00=none, 0x01=u8, 0x02=u16, 0x03=u32,
+0       2B     Sync               0x4C 0x58 magic ('LX')
+2       2B     Sequence Num       Monotonic sequence counter (little-endian uint16)
+4       2B     Symbol ID          Compile-time token (little-endian uint16)
+6       4B     Timestamp (µs)     Monotonic microsecond clock (little-endian uint32)
+10      1B     Payload Type       Enum: 0x00=none, 0x01=u8, 0x02=u16, 0x03=u32,
                                         0x04=i32, 0x05=f32, 0x06=bytes, 0x07=str_ref
-9       1B     Payload Length     Number of payload bytes that follow (0–255)
-10      2B     CRC-16/CCITT       CRC over bytes [0..9] (little-endian)
+11      1B     Payload Length     Number of payload bytes that follow (0–255)
+12      2B     CRC-16/CCITT       CRC over bytes [0..11] (little-endian)
 --- header end ---
-12+     N B    Payload            Raw packed bytes (length from offset 9)
+14+     N B    Payload            Raw packed bytes (length from offset 11)
 ```
 
-Total minimum frame size: **12 bytes** (zero-payload event).
+Total minimum frame size: **14 bytes** (zero-payload event).
 
 ---
 
@@ -82,7 +83,7 @@ Reserved ranges:
 ## 6. CRC
 
 CRC-16/CCITT-FALSE (polynomial `0x1021`, init `0xFFFF`, no reflection).  
-Computed over header bytes 0–9 inclusive. Receivers that detect a CRC mismatch must discard the frame and re-scan for sync.
+Computed over header bytes 0–11 inclusive using a 256-entry hardware/software lookup table (LUT) for sub-microsecond evaluation. Receivers that detect a CRC mismatch must discard the frame and re-scan for sync.
 
 ---
 

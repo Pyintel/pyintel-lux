@@ -14,7 +14,7 @@ Pyintel Lux is an open binary telemetry standard that does for constrained edge 
 
 | | OpenTelemetry | Pyintel Lux |
 |---|---|---|
-| Wire format | JSON / Protobuf (HTTP) | 12-byte zero-copy binary frame |
+| Wire format | JSON / Protobuf (HTTP) | 14-byte zero-copy binary frame |
 | MCU support | None | First-class `no_std` C & Rust |
 | Runtime RAM on device | MBs | `< 1 KB static` |
 | Transport | HTTP / gRPC | UART, CAN, UDP, ESP-NOW, WebSockets |
@@ -44,10 +44,13 @@ pyintel-lux/
 
 ## Technical Blog & Empirical Benchmarks
 
-- ✍️ **[Technical Blog Post](research/BLOG.md)** — *Building Lux: A Microsecond-Latency Binary Telemetry Engine for Microcontrollers*
-- 📖 **[Research Overview & Results](research/README.md)** — Empirical hardware benchmarks across UART and Wi-Fi UDP.
-- ⚡ **[Phase 1 — UART Emit](research/esp32/phase1-uart-emit/README.md)** — Hardware emission over USB-Serial (@ 115,200 baud).
-- 📡 **[Phase 2 — UDP Stream over Wi-Fi](research/esp32/phase2-udp-stream/README.md)** — Wireless UDP broadcast telemetry with sequence loss tracking.
+- ✍️ **[Technical Blog Series](research/BLOG.md)** — *Building Lux: A Microsecond-Latency Binary Telemetry Engine for Microcontrollers*
+- 📖 **[Research Overview & Results](research/README.md)** — Complete 5-phase empirical hardware benchmarks.
+- ⚡ **[Phase 1 — UART Emit](research/esp32/phase1-uart-emit/README.md)** — Hardware emission over USB-Serial (100% PDR, 4 µs emit time).
+- 📡 **[Phase 2 — UDP Stream over Wi-Fi](research/esp32/phase2-udp-stream/README.md)** — Wireless UDP broadcast with 0.00 ms batched intra-delay & sequence loss tracking.
+- 🔗 **[Phase 3 — ESP-NOW P2P Mesh](research/esp32/phase3-esp-now-mesh/README.md)** — Offline 2-board wireless mesh bridge (100% PDR, 4.06 ms latency).
+- 🗄️ **[Phase 4 — Host luxd Ingest Proxy](research/host/luxd-ingest/README.md)** — Symbol dictionary de-tokenization & SQLite storage.
+- 🖥️ **[Phase 5 — Web Dashboard](research/host/web-dashboard/README.md)** — Live WebSocket bridge & in-browser `DataView` Chart.js rendering.
 
 ---
 
