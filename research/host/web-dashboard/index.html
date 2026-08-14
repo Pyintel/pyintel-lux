@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Pyintel Lux — Live Binary Telemetry Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+    body { background: #0f172a; color: #f8fafc; padding: 20px; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #334155; }
+    h1 { font-size: 1.5rem; color: #38bdf8; font-weight: 600; }
+    .status-badge { padding: 6px 14px; borderRadius: 20px; font-weight: 600; font-size: 0.85rem; }
+    .connected { background: #059669; color: #ecfdf5; }
+    .disconnected { background: #dc2626; color: #fef2f2; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 20px; }
+    .card { background: #1e293b; padding: 16px; border-radius: 8px; border: 1px solid #334155; }
+    .card-title { font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+    .card-value { font-size: 1.6rem; font-weight: 700; color: #f1f5f9; }
+    .chart-container { background: #1e293b; padding: 20px; border-radius: 8px; border: 1px solid #334155; margin-bottom: 20px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { text-align: left; padding: 10px; border-bottom: 1px solid #334155; font-size: 0.85rem; }
+    th { color: #94a3b8; }
+    .crc-ok { color: #34d399; font-weight: 600; }
+    .crc-fail { color: #f87171; font-weight: 600; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>⚡ Pyintel Lux — Live Binary Telemetry Dashboard</h1>
+    <div id="ws-status" class="status-badge disconnected">Disconnected</div>
+  </header>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card-title">Total Packets Ingested</div>
+      <div id="stat-total" class="card-value">0</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Latest App Counter</div>
+      <div id="stat-counter" class="card-value">—</div>
+    </div>
+    <div class="card">
+      <div class="card-title">ESP32 Uptime</div>
+      <div id="stat-uptime" class="card-value">—</div>
+    </div>
+    <div class="card">
+      <div class="card-title">CRC-16 Reliability</div>
+      <div id="stat-crc" class="card-value">100%</div>
+    </div>
+  </div>
+
+  <div class="chart-container">
+    <canvas id="telemetryChart" height="90"></canvas>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Recent Binary Packet Log</div>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Seq</th>
+          <th>Symbol Name</th>
+          <th>ESP Timestamp (µs)</th>
+          <th>Type</th>
+          <th>Payload Value</th>
+          <th>CRC Status</th>
+        </tr>
+      </thead>
+      <tbody id="log-body">
+        <tr><td colspan="7" style="color: #64748b;">Waiting for incoming WebSocket binary stream...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    const SYNC = 0x584C; // 'LX' little endian
+    const HEADER_SIZE = 14;
+
+    const SYSTEM_SYMBOLS = {
+      0x0001: "LUX_SYM_HEARTBEAT",
+      0x0002: "LUX_SYM_RESET",
+      0x0003: "LUX_SYM_OVERFLOW",
+      0x0004: "LUX_SYM_TRANSPORT_SWITCH",
+      0x0100: "APP_UPTIME",
+      0x0101: "APP_COUNTER"
+    };
+
+    function crc16_ccitt(buffer) {
+      let crc = 0xFFFF;
+      const bytes = new Uint8Array(buffer);
+      for (let i = 0; i < 12; i++) {
+        crc ^= bytes[i] << 8;
+        for (let j = 0; j < 8; j++) {
+          crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF;
+        }
+      }
+      return crc;
+    }
+
+    // Chart.js Setup
+    const ctx = document.getElementById('telemetryChart').getContext('2d');
+    const chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Application Counter (SYM 0x0101)',
+          borderColor: '#38bdf8',
+          backgroundColor: 'rgba(56, 189, 248, 0.1)',
+          borderWidth: 2,
+          fill: true,
+          tension: 0.3,
+          data: []
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { labels: { color: '#94a3b8' } } },
+        scales: {
+          x: { ticks: { color: '#64748b' }, grid: { color: '#334155' } },
+          y: { ticks: { color: '#64748b' }, grid: { color: '#334155' } }
+        }
+      }
+    });
+
+    let totalPackets = 0;
+    let crcOkCount = 0;
+    const logBody = document.getElementById('log-body');
+    const wsStatus = document.getElementById('ws-status');
+
+    // Connect WebSocket
+    const ws = new WebSocket('ws://localhost:8765');
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+      wsStatus.textContent = 'Live Connected (ws://localhost:8765)';
+      wsStatus.className = 'status-badge connected';
+    };
+
+    ws.onclose = () => {
+      wsStatus.textContent = 'Disconnected';
+      wsStatus.className = 'status-badge disconnected';
+    };
+
+    ws.onmessage = (event) => {
+      const buffer = event.data;
+      const view = new DataView(buffer);
+
+      if (buffer.byteLength < HEADER_SIZE) return;
+
+      let offset = 0;
+      while (offset + HEADER_SIZE <= buffer.byteLength) {
+        const sync = view.getUint16(offset, true);
+        if (sync !== SYNC) {
+          offset++;
+          continue;
+        }
+
+        const seq_num = view.getUint16(offset + 2, true);
+        const symbol_id = view.getUint16(offset + 4, true);
+        const ts_us = view.getUint32(offset + 6, true);
+        const ptype = view.getUint8(offset + 10);
+        const plen = view.getUint8(offset + 11);
+        const crc_recv = view.getUint16(offset + 12, true);
+
+        const crc_calc = crc16_ccitt(buffer.slice(offset, offset + 12));
+        const crc_ok = crc_calc === crc_recv;
+
+        let payload_val = null;
+        if (plen === 4 && offset + HEADER_SIZE + 4 <= buffer.byteLength) {
+          payload_val = view.getUint32(offset + HEADER_SIZE, true);
+        }
+
+        totalPackets++;
+        if (crc_ok) crcOkCount++;
+
+        // UI Updates
+        document.getElementById('stat-total').textContent = totalPackets;
+        document.getElementById('stat-crc').textContent = `${((crcOkCount / totalPackets) * 100).toFixed(1)}%`;
+
+        const symName = SYSTEM_SYMBOLS[symbol_id] || `0x${symbol_id.toString(16).toUpperCase()}`;
+
+        if (symbol_id === 0x0101 && payload_val !== null) {
+          document.getElementById('stat-counter').textContent = payload_val;
+          const timeLabel = new Date().toLocaleTimeString();
+          chart.data.labels.push(timeLabel);
+          chart.data.datasets[0].data.push(payload_val);
+          if (chart.data.labels.length > 20) {
+            chart.data.labels.shift();
+            chart.data.datasets[0].data.shift();
+          }
+          chart.update();
+        } else if (symbol_id === 0x0001 && payload_val !== null) {
+          document.getElementById('stat-uptime').textContent = `${(payload_val / 1000).toFixed(1)}s`;
+        }
+
+        // Table Log
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${totalPackets}</td>
+          <td>${seq_num}</td>
+          <td style="color:#38bdf8;">${symName}</td>
+          <td>${ts_us} µs</td>
+          <td>u32</td>
+          <td><b>${payload_val !== null ? payload_val : '—'}</b></td>
+          <td class="${crc_ok ? 'crc-ok' : 'crc-fail'}">${crc_ok ? 'OK' : 'FAIL'}</td>
+        `;
+        if (logBody.rows.length === 1 && logBody.rows[0].cells.length === 1) {
+          logBody.innerHTML = '';
+        }
+        logBody.insertBefore(row, logBody.firstChild);
+        if (logBody.rows.length > 10) logBody.removeChild(logBody.lastChild);
+
+        offset += HEADER_SIZE + plen;
+      }
+    };
+  </script>
+</body>
+</html>

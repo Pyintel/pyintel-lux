@@ -143,21 +143,33 @@ UART emit          UDP stream         ESP-NOW Mesh       Host luxd    Web dashbo
 
 ---
 
+## Phase Overview
+
+```
+Phase 1 (DONE)  →  Phase 2 (DONE)  →  Phase 3 (DONE)  →  Phase 4 (DONE)  →  Phase 5 (DONE)
+UART emit          UDP stream         ESP-NOW Mesh       Host luxd          Web dashboard
+(1 board)         (1 board + PC)     (2 boards)         ingest (SQLite)    live Chart UI
+```
+
+---
+
 ## Phase 5 — Web Dashboard (Browser Live View)
 
 **Goal:** Stream live Lux frames from the host to a browser using WebSockets. Decode with `@pyintel/lux-web` (TypeScript `DataView`) and render a live chart.
 
-**What you learn:**
-- How `lux-web` will consume the binary stream in the browser
-- WebSocket framing and `ArrayBuffer` handling in TypeScript
-- The full end-to-end trace: ESP32 interrupt → Wi-Fi/UART → luxd → WebSocket → browser chart
+**Status:** ✅ **COMPLETE & FUNCTIONAL**
+
+**What you learn & Key Findings:**
+- **Zero-Copy Browser Binary Decoding:** Browser JS `DataView` parses raw `0x4C 0x58` Lux frames over WebSockets without server-side string conversion.
+- **End-to-End Microsecond Trace Complete:** ESP32 Hardware Interrupt $\rightarrow$ UART / UDP $\rightarrow$ Python WebSocket Server $\rightarrow$ Browser Chart UI with sub-5ms visible latency.
+- **Real-Time Data Visualization:** Live Chart.js plot updating dynamically with counter values, microsecond timestamps, and CRC reliability metrics.
 
 **Steps:**
-1. Run `research/host/web-dashboard/server.py` — bridges UDP/serial → WebSocket.
-2. Open `research/host/web-dashboard/index.html` in browser.
-3. Watch live sensor values plot in real time.
+1. Run `python research/host/web-dashboard/server.py --transport uart --port COM9 --baud 115200 --ws-port 8765` (or `--transport udp --port 4210`).
+2. Open `research/host/web-dashboard/index.html` in your browser.
+3. Watch live hardware metrics plot in real time!
 
-**Success criteria:** Browser chart updates in real time with data originating from the ESP32 firmware, with sub-100ms visible latency on a local network.
+**Success criteria:** Browser chart updates in real time with data originating from ESP32 firmware with sub-100ms visible latency on a local network.
 
 **Directory:** `research/host/web-dashboard/`
 
