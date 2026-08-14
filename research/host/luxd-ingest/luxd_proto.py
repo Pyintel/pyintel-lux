@@ -45,8 +45,14 @@ def crc16_ccitt(data: bytes) -> int:
 
 def load_symbols(json_path: str):
     symbols_map = {}
-    if os.path.exists(json_path):
-        with open(json_path, "r", encoding="utf-8") as f:
+    # Try direct path or resolve relative to script directory
+    target_path = json_path
+    if not os.path.exists(target_path):
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        target_path = os.path.join(script_dir, os.path.basename(json_path))
+
+    if os.path.exists(target_path):
+        with open(target_path, "r", encoding="utf-8") as f:
             data = json.load(f)
             for hex_id, sym_info in data.get("symbols", {}).items():
                 int_id = int(hex_id, 16)
@@ -86,6 +92,7 @@ def init_db(db_path: str):
 def parse_lux_buffer(buffer: bytes, symbols_map: dict):
     frames = []
     offset = 0
+    consumed_offset = 0
     while offset < len(buffer):
         idx = buffer.find(SYNC, offset)
         if idx == -1 or (len(buffer) - idx) < HEADER_SIZE:
@@ -103,6 +110,9 @@ def parse_lux_buffer(buffer: bytes, symbols_map: dict):
         crc_ok   = 1 if crc_calc == crc_recv else 0
 
         payload_offset = idx + HEADER_SIZE
+        if (len(buffer) - payload_offset) < plen:
+            break
+
         payload_data = buffer[payload_offset:payload_offset + plen]
         payload_val  = decode_payload(ptype, plen, payload_data)
         frame_size_bytes = HEADER_SIZE + plen
@@ -121,8 +131,9 @@ def parse_lux_buffer(buffer: bytes, symbols_map: dict):
             "frame_size": frame_size_bytes,
         })
         offset = payload_offset + plen
+        consumed_offset = offset
 
-    return frames
+    return frames, consumed_offset
 
 def main():
     parser = argparse.ArgumentParser(description="Pyintel Lux — Host luxd Ingest Daemon Prototype")
@@ -155,12 +166,12 @@ def main():
                     if args.duration > 0 and (time.time() - start_time) >= args.duration:
                         break
 
-                    b = ser.read(1)
+                    b = ser.read(ser.in_waiting or 1)
                     if not b:
                         continue
                     buf += b
                     if len(buf) >= HEADER_SIZE:
-                        frames = parse_lux_buffer(buf, symbols_map)
+                        frames, consumed = parse_lux_buffer(buf, symbols_map)
                         for f in frames:
                             frame_count += 1
                             now_iso = datetime.now().isoformat()
@@ -170,8 +181,8 @@ def main():
                             """, (now_iso, "uart", f["seq_num"], f["sym_id"], f["sym_name"], f["ts_us"], f["ptype"], f["payload"], f["frame_size"], f["crc_ok"]))
                             conn.commit()
                             console.print(f"[dim]{frame_count:5d}[/dim] [cyan]{f['sym_name']:<22}[/cyan] seq={f['seq_num']} val={f['payload']} → [green]DB Saved[/green]")
-                        if frames:
-                            buf = b''
+                        if consumed > 0:
+                            buf = buf[consumed:]
             except KeyboardInterrupt:
                 console.print("\n[yellow]Stopped by user.[/yellow]")
     else:
@@ -190,7 +201,7 @@ def main():
                 except socket.timeout:
                     continue
 
-                frames = parse_lux_buffer(data, symbols_map)
+                frames, _ = parse_lux_buffer(data, symbols_map)
                 for f in frames:
                     frame_count += 1
                     now_iso = datetime.now().isoformat()
