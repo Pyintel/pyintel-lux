@@ -71,6 +71,9 @@ public:
     lux_status_t broadcast(uint16_t symbol, const uint8_t *data, uint8_t len);
     lux_status_t broadcast(uint16_t symbol, const char *str);
 
+    /** Relay an intact mesh envelope from a secondary UART/Serial stream to the wireless swarm */
+    lux_status_t relayRawMeshFrame(const uint8_t *frame_data, size_t len, lux_transport_id_t incoming_transport = LUX_TRANSPORT_SERIAL);
+
     /* ── Message Callbacks & Ingestion ───────────────────────────────── */
     void onMessage(uint16_t symbol, LuxMessageHandler handler);
     void onMessage(LuxMessageHandler handler);

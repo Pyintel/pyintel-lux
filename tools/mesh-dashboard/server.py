@@ -25,6 +25,9 @@ SYMBOL_NAMES = {
     0x0202: "SYM_PONG",
     0x0301: "SYM_SENSOR_TEMP",
     0x0302: "SYM_SENSOR_VOLT",
+    0x0310: "SYM_UNO_POT_VAL",
+    0x0320: "SYM_PICO_TEMP",
+    0x0321: "SYM_PICO_LED_CMD",
     0x0401: "SYM_ALERT_TRIGGER",
 }
 
@@ -171,6 +174,16 @@ class MeshBridge:
                     except:
                         pass
 
+            val_clean = "".join(c for c in val_raw if c.isprintable()).strip()
+            if not val_clean:
+                val_clean = val_raw
+
+            if sym_id == 0x0320:
+                try:
+                    val_clean = f"{float(val_clean):.1f} °C"
+                except:
+                    pass
+
             msg_data = {
                 "type": "frame",
                 "dir": "RX" if is_rx else "TX",
@@ -178,7 +191,7 @@ class MeshBridge:
                 "dst": dst,
                 "sym_id": sym_id,
                 "sym_name": sym_name,
-                "val": val_raw,
+                "val": val_clean,
                 "hop": hop,
                 "crc": crc,
                 "timestamp": time.strftime("%H:%M:%S") + f".{int((now % 1)*1000):03d}"
@@ -188,34 +201,35 @@ class MeshBridge:
         elif "│" in line and "0x" in line:
             cols = [c.strip() for c in line.split("│") if c.strip()]
             if len(cols) >= 4:
-                node_id = cols[0]
-                transports = cols[1]
-                rssi = cols[2]
-                uptime_str = cols[3]
+                raw_node = cols[0].split()[0]
+                if not raw_node.startswith("0x") or len(raw_node) != 6:
+                    return None
+                node_id = raw_node
+                transports = "".join(c for c in cols[1] if c.isprintable() or c == ' ').strip()
+                rssi = cols[2].split()[0]
+                uptime_str = cols[3].split()[0]
                 status = cols[4] if len(cols) > 4 else "LIVE"
 
                 if "(ME)" in transports:
                     self.local_node_id = node_id
 
-                if node_id.startswith("0x"):
-                    if node_id not in self.peers:
-                        self.peers[node_id] = {
-                            "node_id": node_id,
-                            "transport": transports,
-                            "rssi": rssi,
-                            "uptime": 0,
-                            "last_seen": time.time() if node_id == self.local_node_id else 0,
-                            "rx_count": 1,
-                            "tx_count": 0,
-                            "alive": (node_id == self.local_node_id)
-                        }
-                    else:
-                        p = self.peers[node_id]
-                        p["transport"] = transports
-                        p["rssi"] = rssi
-                        if node_id == self.local_node_id:
-                            p["last_seen"] = time.time()
-                            p["alive"] = True
+                if node_id not in self.peers:
+                    self.peers[node_id] = {
+                        "node_id": node_id,
+                        "transport": transports,
+                        "rssi": rssi,
+                        "uptime": 0,
+                        "last_seen": time.time() if node_id == self.local_node_id else time.time(),
+                        "rx_count": 1,
+                        "tx_count": 0,
+                        "alive": True
+                    }
+                else:
+                    p = self.peers[node_id]
+                    p["transport"] = transports
+                    p["rssi"] = rssi
+                    p["last_seen"] = time.time()
+                    p["alive"] = True
 
         # Prune alive status (3.5s timeout for remote nodes)
         for p in self.peers.values():
@@ -278,12 +292,22 @@ class MeshBridge:
 
 async def main():
     parser = argparse.ArgumentParser(description="Pyintel Lux Mesh WebSocket Bridge")
-    parser.add_argument("--port", default="COM9", help="Serial COM port")
+    parser.add_argument("--port", default="auto", help="Serial COM port (default: auto)")
     parser.add_argument("--baud", type=int, default=115200, help="Baud rate")
     parser.add_argument("--ws-port", type=int, default=8765, help="WebSocket port")
     args = parser.parse_args()
 
-    bridge = MeshBridge(port=args.port, baud=args.baud, ws_port=args.ws_port)
+    port = args.port
+    if port == "auto" or not any(p.device == port for p in serial.tools.list_ports.comports()):
+        available = [p.device for p in serial.tools.list_ports.comports()]
+        if "COM9" in available:
+            port = "COM9"
+        elif available:
+            port = available[0]
+        else:
+            port = "COM9"
+
+    bridge = MeshBridge(port=port, baud=args.baud, ws_port=args.ws_port)
     loop = asyncio.get_running_loop()
     bridge.start_serial_thread(loop)
 

@@ -597,6 +597,50 @@ lux_status_t LuxClass::tick() {
     return LUX_OK;
 }
 
+lux_status_t LuxClass::relayRawMeshFrame(const uint8_t *frame_data, size_t len, lux_transport_id_t incoming_transport) {
+    if (!frame_data || len < (LUX_MESH_HEADER_SIZE + LUX_HEADER_SIZE)) return LUX_ERR_NULL;
+
+    // Validate sync bytes
+    if (frame_data[0] != LUX_MESH_SYNC_0 || frame_data[1] != LUX_MESH_SYNC_1) return LUX_ERR_TRANSPORT;
+
+    lux_mesh_envelope_t *env = (lux_mesh_envelope_t *)frame_data;
+    if (env->net_hash != _net_hash) return LUX_OK; // Filtered
+
+    lux_frame_header_t *inner = (lux_frame_header_t *)(frame_data + LUX_MESH_HEADER_SIZE);
+    uint16_t computed_crc = lux_crc16((const uint8_t *)inner, 12);
+    bool crc_ok = (computed_crc == inner->crc16);
+    if (!crc_ok) return LUX_ERR_TRANSPORT;
+
+    uint8_t *payload_ptr = (uint8_t *)(frame_data + LUX_MESH_HEADER_SIZE + LUX_HEADER_SIZE);
+    uint8_t payload_len = inner->payload_len;
+
+    // 1. Update peer table for the originating wired node (Pico / Uno)
+    uint32_t peer_uptime = 0;
+    if (inner->symbol_id == LUX_SYM_HEARTBEAT && inner->payload_type == LUX_TYPE_U32 && payload_len >= 4) {
+        peer_uptime = (uint32_t)payload_ptr[0] | ((uint32_t)payload_ptr[1] << 8) |
+                      ((uint32_t)payload_ptr[2] << 16) | ((uint32_t)payload_ptr[3] << 24);
+    }
+    updatePeer(env->src_node, LUX_TRANSPORT_SERIAL, 0, peer_uptime);
+
+    // 2. Print debug stream to PC USB Serial
+    if (_debug_enabled && _debug_stream) {
+        printDebugFrame(true, env->src_node, env->dst_node, inner->symbol_id, inner->payload_type,
+                        payload_ptr, payload_len, incoming_transport, env->hop_count, crc_ok);
+    }
+
+    // 3. Forward the intact raw envelope over wireless transports (ESP-NOW / Wi-Fi UDP)
+    for (uint8_t i = 0; i < _transport_count; i++) {
+        if (_transports[i] && _transports[i]->id != incoming_transport && _transports[i]->is_available()) {
+            _transports[i]->send(frame_data, len, env->dst_node);
+        }
+    }
+
+    // 4. Dispatch to registered local handlers
+    dispatchMessage(env->src_node, inner->symbol_id, payload_ptr, payload_len);
+
+    return LUX_OK;
+}
+
 lux_status_t LuxClass::flush() {
     if (!_is_initialized) return LUX_ERR_NULL;
     _last_flush_ms = millis();

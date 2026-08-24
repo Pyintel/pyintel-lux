@@ -23,7 +23,7 @@
 uint32_t last_send = 0;
 uint16_t sample_counter = 0;
 
-void onLedCommand(uint16_t src_node, const uint8_t *payload, uint8_t len) {
+void onLedCommand(uint16_t src_node, uint16_t symbol, const uint8_t *payload, uint8_t len) {
     if (len >= 1) {
         digitalWrite(LED_BUILTIN, payload[0] ? HIGH : LOW);
     }
