@@ -20,8 +20,35 @@ uint8_t  bridge_buf[256];
 uint8_t  bridge_idx = 0;
 
 void onMeshMessage(uint16_t src_node, uint16_t symbol, const uint8_t *payload, uint8_t len) {
-    // Relay remote wireless mesh messages down Serial2 to the wired Pico/Uno node
-    // Format and send as a full mesh packet down Serial2
+    // Forward remote wireless mesh messages down Serial2 to the wired Pico node!
+    if (src_node != Lux.getNodeId()) {
+        uint8_t out_buf[128];
+        lux_mesh_envelope_t *env = (lux_mesh_envelope_t *)out_buf;
+        env->sync[0] = LUX_MESH_SYNC_0;
+        env->sync[1] = LUX_MESH_SYNC_1;
+        env->net_hash = Lux.getNetworkHash();
+        env->src_node = src_node;
+        env->dst_node = LUX_NODE_BROADCAST;
+        env->hop_count = 3;
+        env->flags = 0;
+
+        lux_frame_header_t *inner = (lux_frame_header_t *)(out_buf + LUX_MESH_HEADER_SIZE);
+        inner->sync[0] = 'L';
+        inner->sync[1] = 'X';
+        inner->seq_num = 1;
+        inner->symbol_id = symbol;
+        inner->timestamp_us = micros();
+        inner->payload_type = (symbol == LUX_SYM_HEARTBEAT) ? LUX_TYPE_U32 : LUX_TYPE_BYTES;
+        inner->payload_len = len;
+        inner->crc16 = lux_crc16((const uint8_t *)inner, 12);
+
+        if (payload && len > 0 && len <= (sizeof(out_buf) - LUX_MESH_HEADER_SIZE - LUX_HEADER_SIZE)) {
+            memcpy(out_buf + LUX_MESH_HEADER_SIZE + LUX_HEADER_SIZE, payload, len);
+        }
+
+        size_t total = LUX_MESH_HEADER_SIZE + LUX_HEADER_SIZE + len;
+        Serial2.write(out_buf, total);
+    }
 }
 
 void setup() {
@@ -53,6 +80,32 @@ void loop() {
     if (millis() - last_heartbeat >= 1000) {
         last_heartbeat = millis();
         Lux.broadcast(LUX_SYM_HEARTBEAT, (uint32_t)millis());
+
+        // Also emit Bridge's own heartbeat down Serial2 so Pico discovers the Bridge Node too!
+        uint8_t out_buf[64];
+        lux_mesh_envelope_t *env = (lux_mesh_envelope_t *)out_buf;
+        env->sync[0] = LUX_MESH_SYNC_0;
+        env->sync[1] = LUX_MESH_SYNC_1;
+        env->net_hash = Lux.getNetworkHash();
+        env->src_node = Lux.getNodeId();
+        env->dst_node = LUX_NODE_BROADCAST;
+        env->hop_count = 3;
+        env->flags = 0;
+
+        lux_frame_header_t *inner = (lux_frame_header_t *)(out_buf + LUX_MESH_HEADER_SIZE);
+        inner->sync[0] = 'L';
+        inner->sync[1] = 'X';
+        inner->seq_num = 1;
+        inner->symbol_id = LUX_SYM_HEARTBEAT;
+        inner->timestamp_us = micros();
+        inner->payload_type = LUX_TYPE_U32;
+        inner->payload_len = 4;
+        inner->crc16 = lux_crc16((const uint8_t *)inner, 12);
+
+        uint32_t up = (uint32_t)millis();
+        memcpy(out_buf + LUX_MESH_HEADER_SIZE + LUX_HEADER_SIZE, &up, 4);
+
+        Serial2.write(out_buf, LUX_MESH_HEADER_SIZE + LUX_HEADER_SIZE + 4);
     }
 
     // 2. Ingest frames from Pico/Uno via Serial2 -> Blast to ESP-NOW Swarm & Web Dashboard
