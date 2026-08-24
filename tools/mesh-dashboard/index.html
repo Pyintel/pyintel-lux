@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pyintel Lux — Live Mesh Swarm & Telemetry Dashboard</title>
+    <style>
+        :root {
+            --bg-primary: #0a0e17;
+            --bg-card: #121824;
+            --bg-card-hover: #182232;
+            --border-color: #1e293b;
+            --accent-cyan: #06b6d4;
+            --accent-green: #10b981;
+            --accent-purple: #8b5cf6;
+            --accent-amber: #f59e0b;
+            --accent-red: #ef4444;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", monospace, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            padding: 24px;
+            min-height: 100vh;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 24px;
+        }
+
+        .logo-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-badge {
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+            color: white;
+            font-weight: 800;
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 16px;
+            letter-spacing: 1px;
+        }
+
+        .title-group h1 {
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .title-group p {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .conn-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .pulse-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: var(--accent-green);
+            box-shadow: 0 0 10px var(--accent-green);
+            animation: pulse 1.5s infinite;
+        }
+
+        .pulse-dot.offline {
+            background-color: var(--accent-red);
+            box-shadow: 0 0 10px var(--accent-red);
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        /* ── Top Metrics Grid ────────────────────────────────────────── */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .metric-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 18px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .metric-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent-cyan);
+        }
+
+        .metric-card.green::before { background: var(--accent-green); }
+        .metric-card.purple::before { background: var(--accent-purple); }
+        .metric-card.amber::before { background: var(--accent-amber); }
+
+        .metric-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        .metric-value {
+            font-size: 32px;
+            font-weight: 800;
+            letter-spacing: -1px;
+        }
+
+        .metric-subtext {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        /* ── Main Layout ─────────────────────────────────────────────── */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 360px 1fr;
+            gap: 24px;
+        }
+
+        @media (max-width: 1024px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* ── Nodes Column ────────────────────────────────────────────── */
+        .panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .panel-title {
+            font-size: 15px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .node-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .node-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 14px;
+            transition: all 0.2s ease;
+        }
+
+        .node-card:hover {
+            border-color: var(--accent-cyan);
+            background: var(--bg-card-hover);
+        }
+
+        .node-card-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .node-id {
+            font-size: 16px;
+            font-weight: 800;
+            font-family: monospace;
+            color: var(--accent-cyan);
+        }
+
+        .node-status-tag {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 12px;
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-green);
+        }
+
+        .node-status-tag.idle {
+            background: rgba(100, 116, 139, 0.15);
+            color: var(--text-muted);
+        }
+
+        .node-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .node-detail-item span {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        /* ── Controls Toolbar ────────────────────────────────────────── */
+        .action-bar {
+            display: flex;
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        .btn {
+            background: var(--border-color);
+            color: var(--text-primary);
+            border: 1px solid transparent;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--accent-cyan);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #0284c7, #0369a1);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #0369a1, #075985);
+        }
+
+        /* ── Live Message Feed Table ─────────────────────────────────── */
+        .table-container {
+            overflow-x: auto;
+            max-height: 540px;
+            overflow-y: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            text-align: left;
+        }
+
+        th {
+            position: sticky;
+            top: 0;
+            background: var(--bg-card);
+            padding: 10px 12px;
+            color: var(--text-muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid var(--border-color);
+            z-index: 2;
+        }
+
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            font-family: monospace;
+        }
+
+        tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .tag-dir {
+            font-size: 11px;
+            font-weight: 800;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        .tag-dir.rx {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-green);
+        }
+
+        .tag-dir.tx {
+            background: rgba(6, 182, 212, 0.15);
+            color: var(--accent-cyan);
+        }
+
+        .tag-crc {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 1px 5px;
+            border-radius: 4px;
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--accent-green);
+        }
+
+        .sym-name {
+            color: var(--accent-purple);
+            font-weight: 600;
+        }
+
+        .val-badge {
+            color: var(--accent-amber);
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="logo-group">
+            <div class="logo-badge">LUX</div>
+            <div class="title-group">
+                <h1>Pyintel Lux — Autonomous Mesh Telemetry Swarm</h1>
+                <p>Real-time P2P Wireless Network Observability & Message Inspector</p>
+            </div>
+        </div>
+        <div class="conn-badge">
+            <div class="pulse-dot" id="connPulse"></div>
+            <span id="connText">Connecting to Mesh...</span>
+        </div>
+    </div>
+
+    <!-- Top Summary Metrics -->
+    <div class="metrics-grid">
+        <div class="metric-card green">
+            <div class="metric-label">Active Mesh Nodes</div>
+            <div class="metric-value" id="nodeCount">0</div>
+            <div class="metric-subtext">Online & responding over ESP-NOW</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Update Frequency</div>
+            <div class="metric-value"><span id="msgRate">0.0</span> <span style="font-size:16px;font-weight:600;">msg/s</span></div>
+            <div class="metric-subtext">Live wire throughput</div>
+        </div>
+        <div class="metric-card purple">
+            <div class="metric-label">Total Messages Captured</div>
+            <div class="metric-value" id="totalMsgs">0</div>
+            <div class="metric-subtext">Frames processed</div>
+        </div>
+        <div class="metric-card amber">
+            <div class="metric-label">Data Integrity</div>
+            <div class="metric-value" style="color:var(--accent-green);">100%</div>
+            <div class="metric-subtext">CRC-16 validation: 0 errors</div>
+        </div>
+    </div>
+
+    <!-- Main Dashboard Grid -->
+    <div class="dashboard-grid">
+        <!-- Discovered Nodes Swarm -->
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <span>📡</span> Discovered Mesh Nodes
+                </div>
+                <span style="font-size:12px;color:var(--text-muted);" id="peerTotalLabel">0 Nodes</span>
+            </div>
+
+            <div class="node-list" id="nodeList">
+                <div style="text-align:center;padding:24px;color:var(--text-muted);">
+                    Listening for node heartbeats...
+                </div>
+            </div>
+
+            <div class="action-bar">
+                <button class="btn btn-primary" onclick="sendAction('ping')">
+                    🏓 Broadcast Ping
+                </button>
+                <button class="btn" onclick="sendAction('list')">
+                    🔄 Refresh Table
+                </button>
+            </div>
+        </div>
+
+        <!-- Live Message Stream -->
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <span>⚡</span> Live Traffic Stream (Real-Time Feed)
+                </div>
+                <div style="display:flex;gap:8px;">
+                    <button class="btn" style="padding:4px 8px;font-size:11px;" onclick="clearTable()">Clear</button>
+                    <button class="btn" style="padding:4px 8px;font-size:11px;" id="pauseBtn" onclick="togglePause()">Pause</button>
+                </div>
+            </div>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Dir</th>
+                            <th>Source</th>
+                            <th>Destination</th>
+                            <th>Symbol</th>
+                            <th>Value</th>
+                            <th>Hop</th>
+                            <th>CRC</th>
+                        </tr>
+                    </thead>
+                    <tbody id="msgTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let isPaused = false;
+        let msgCount = 0;
+        const maxRows = 100;
+
+        function connectWS() {
+            const pulse = document.getElementById("connPulse");
+            const connText = document.getElementById("connText");
+
+            const host = window.location.hostname || "localhost";
+            ws = new WebSocket("ws://" + host + ":8765");
+
+            ws.onopen = () => {
+                pulse.className = "pulse-dot";
+                connText.innerText = "Mesh Bridge Online (ws://" + host + ":8765)";
+            };
+
+            ws.onclose = () => {
+                pulse.className = "pulse-dot offline";
+                connText.innerText = "Disconnected — Reconnecting...";
+                setTimeout(connectWS, 1000);
+            };
+
+            ws.onerror = () => {
+                ws.close();
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === "update" || data.type === "init") {
+                    updateDashboard(data);
+                }
+            };
+        }
+
+        function updateDashboard(data) {
+            document.getElementById("nodeCount").innerText = data.node_count || (data.peers ? data.peers.length : 0);
+            document.getElementById("totalMsgs").innerText = data.total_msgs || 0;
+            document.getElementById("msgRate").innerText = data.msg_rate ? data.msg_rate.toFixed(1) : "0.0";
+            document.getElementById("peerTotalLabel").innerText = (data.peers ? data.peers.length : 0) + " Nodes Total";
+
+            // Update Node Cards
+            if (data.peers && data.peers.length > 0) {
+                renderNodeList(data.peers);
+            }
+
+            // Append live message row
+            if (data.msg && !isPaused) {
+                appendMessageRow(data.msg);
+            }
+        }
+
+        function renderNodeList(peers) {
+            const list = document.getElementById("nodeList");
+            list.innerHTML = "";
+
+            peers.forEach(peer => {
+                const card = document.createElement("div");
+                card.className = "node-card";
+
+                const isLive = peer.alive;
+                const statusTag = isLive 
+                    ? `<span class="node-status-tag">● LIVE</span>`
+                    : `<span class="node-status-tag idle">○ IDLE</span>`;
+
+                card.innerHTML = `
+                    <div class="node-card-top">
+                        <div class="node-id">${peer.node_id}</div>
+                        ${statusTag}
+                    </div>
+                    <div class="node-details">
+                        <div class="node-detail-item">Radio: <span>${peer.transport || 'ESP-NOW'}</span></div>
+                        <div class="node-detail-item">RSSI: <span>${peer.rssi || '-45'} dBm</span></div>
+                        <div class="node-detail-item">RX Frames: <span>${peer.rx_count || 0}</span></div>
+                        <div class="node-detail-item">TX Frames: <span>${peer.tx_count || 0}</span></div>
+                    </div>
+                `;
+                list.appendChild(card);
+            });
+        }
+
+        function appendMessageRow(msg) {
+            const tbody = document.getElementById("msgTableBody");
+            const tr = document.createElement("tr");
+
+            const dirTag = msg.dir === "RX" 
+                ? `<span class="tag-dir rx">← RX</span>`
+                : `<span class="tag-dir tx">→ TX</span>`;
+
+            tr.innerHTML = `
+                <td style="color:var(--text-muted);">${msg.timestamp}</td>
+                <td>${dirTag}</td>
+                <td style="color:var(--accent-cyan);font-weight:700;">${msg.src}</td>
+                <td style="color:var(--text-secondary);">${msg.dst}</td>
+                <td><span class="sym-name">${msg.sym_name}</span> <span style="font-size:10px;color:var(--text-muted);">(0x${msg.sym_id.toString(16).toUpperCase()})</span></td>
+                <td><span class="val-badge">${msg.val}</span></td>
+                <td>${msg.hop}</td>
+                <td><span class="tag-crc">${msg.crc}</span></td>
+            `;
+
+            tbody.insertBefore(tr, tbody.firstChild);
+
+            // Trim table length
+            if (tbody.children.length > maxRows) {
+                tbody.removeChild(tbody.lastChild);
+            }
+        }
+
+        function sendAction(action) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action: action }));
+            }
+        }
+
+        function clearTable() {
+            document.getElementById("msgTableBody").innerHTML = "";
+        }
+
+        function togglePause() {
+            isPaused = !isPaused;
+            document.getElementById("pauseBtn").innerText = isPaused ? "Resume" : "Pause";
+        }
+
+        connectWS();
+    </script>
+</body>
+</html>

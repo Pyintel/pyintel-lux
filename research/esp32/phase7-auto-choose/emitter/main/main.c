@@ -70,6 +70,7 @@ static lux_status_t adaptive_transport_write(const uint8_t *buf, size_t len, voi
                 ESP_LOGW(TAG, "ESP-NOW link degraded! Dynamic switch -> Wi-Fi UDP Broadcast");
                 s_current_transport = TRANSPORT_UDP;
             }
+            __attribute__((fallthrough));
             /* Fallthrough to UDP if ESP-NOW drops */
 
         case TRANSPORT_UDP:
@@ -156,7 +157,7 @@ static void init_wireless(void) {
     }
 }
 
-/* Evaluate Proximity & Dynamically Switch Transport */
+/* Phase 7: Dynamic Auto-Choose Adaptive Transport Switch */
 static void evaluate_adaptive_transport(void) {
     if (s_wifi_connected) {
         wifi_ap_record_t ap_info;
@@ -165,7 +166,7 @@ static void evaluate_adaptive_transport(void) {
         }
     }
 
-    /* Proximity Decision Tree */
+    /* Dynamic Proximity & Quality Auto-Choose Decision Tree */
     if (s_last_rssi > -60 && s_espnow_fail_count == 0) {
         // High Signal Proximity -> Prefer ESP-NOW Direct P2P Mesh
         s_current_transport = TRANSPORT_ESPNOW;
@@ -173,7 +174,7 @@ static void evaluate_adaptive_transport(void) {
         // Range extended / Wi-Fi active -> Use UDP Broadcast
         s_current_transport = TRANSPORT_UDP;
     } else {
-        // Fallback Wired/Direct -> UART
+        // Wired / Direct Link Fallback -> UART
         s_current_transport = TRANSPORT_UART;
     }
 }

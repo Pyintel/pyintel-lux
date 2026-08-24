@@ -4,7 +4,7 @@
  * Multi-architecture ready: AVR PROGMEM support to save SRAM.
  */
 
-#include "lux/lux.h"
+#include "lux.h"
 #include <string.h>
 
 #if defined(__AVR__)

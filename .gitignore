@@ -39,3 +39,8 @@ managed_components/
 # Generated
 symbols.json
 *.lux.dict
+*.db
+*.csv
+mesh_capture_120s.json
+.mimocode/
+export_idf.bat

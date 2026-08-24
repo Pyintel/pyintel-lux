@@ -242,7 +242,7 @@
           currentMode = payload_val;
           updateActiveNodeHighlight(currentMode);
         } else if (symbol_id === 0x0005 && payload_val !== null) {
-          currentRssi = payload_val;
+          currentRssi = view.getInt32(offset + HEADER_SIZE, true);
           document.getElementById('stat-rssi').textContent = `${currentRssi} dBm`;
         } else if (symbol_id === 0x0101 && payload_val !== null) {
           const timeLabel = new Date().toLocaleTimeString();
