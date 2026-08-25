@@ -4,13 +4,13 @@
 
 Work through these in sequence. Do not skip phases — each one builds on the last.
 
-### Research Track (Start Here — ESP32 Lab)
+### Research Track (Completed & Archived)
 ```
-[ ] Phase 1 — UART Emit & Host Decode       research/esp32/phase1-uart-emit/
-[ ] Phase 2 — UDP Stream                    research/esp32/phase2-udp-stream/
-[ ] Phase 3 — ESP-NOW P2P Mesh (2 boards)   research/esp32/phase3-esp-now-mesh/
-[ ] Phase 4 — Host luxd Ingest Prototype    research/host/luxd-ingest/
-[ ] Phase 5 — Web Dashboard Live View       research/host/web-dashboard/
+[x] Phase 1 — UART Emit & Host Decode       archive/research/esp32/phase1-uart-emit/
+[x] Phase 2 — UDP Stream                    archive/research/esp32/phase2-udp-stream/
+[x] Phase 3 — ESP-NOW P2P Mesh (2 boards)   archive/research/esp32/phase3-esp-now-mesh/
+[x] Phase 4 — Host luxd Ingest Prototype    archive/research/host/luxd-ingest/
+[x] Phase 5 — Web Dashboard Live View       archive/research/host/web-dashboard/
 ```
 
 ### Production SDK Track (After Research)

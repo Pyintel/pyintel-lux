@@ -35,28 +35,27 @@ pyintel-lux/
 ├── lux-bridge/              luxd — Rust ingest proxy & OTLP bridge
 ├── lux-mesh/                Dynamic transport fallback manager
 ├── tools/lux-dict-gen/      Compile-time symbol dictionary extractor
-├── research/                Hands-on ESP32 experiments (start here)
 ├── examples/                Working end-to-end example sketches
-└── docs/                    Deep-dive documentation
+├── docs/                    Deep-dive documentation
+└── archive/                 Historical research experiments & empirical lab data
 ```
 
 ---
 
 ## Technical Blog & Empirical Benchmarks
 
-- ✍️ **[Technical Blog Series](research/BLOG.md)** — *Building Lux: A Microsecond-Latency Binary Telemetry Engine for Microcontrollers*
-- 📖 **[Research Overview & Results](research/README.md)** — Complete 5-phase empirical hardware benchmarks.
-- ⚡ **[Phase 1 — UART Emit](research/esp32/phase1-uart-emit/README.md)** — Hardware emission over USB-Serial (100% PDR, 4 µs emit time).
-- 📡 **[Phase 2 — UDP Stream over Wi-Fi](research/esp32/phase2-udp-stream/README.md)** — Wireless UDP broadcast with 0.00 ms batched intra-delay & sequence loss tracking.
-- 🔗 **[Phase 3 — ESP-NOW P2P Mesh](research/esp32/phase3-esp-now-mesh/README.md)** — Offline 2-board wireless mesh bridge (100% PDR, 4.06 ms latency).
-- 🗄️ **[Phase 4 — Host luxd Ingest Proxy](research/host/luxd-ingest/README.md)** — Symbol dictionary de-tokenization & SQLite storage.
-- 🖥️ **[Phase 5 — Web Dashboard](research/host/web-dashboard/README.md)** — Live WebSocket bridge & in-browser `DataView` Chart.js rendering.
+- 📖 **[Research Overview & Results](archive/research/README.md)** — Complete 5-phase empirical hardware benchmarks.
+- ⚡ **[Phase 1 — UART Emit](archive/research/esp32/phase1-uart-emit/README.md)** — Hardware emission over USB-Serial (100% PDR, 4 µs emit time).
+- 📡 **[Phase 2 — UDP Stream over Wi-Fi](archive/research/esp32/phase2-udp-stream/README.md)** — Wireless UDP broadcast with 0.00 ms batched intra-delay & sequence loss tracking.
+- 🔗 **[Phase 3 — ESP-NOW P2P Mesh](archive/research/esp32/phase3-esp-now-mesh/README.md)** — Offline 2-board wireless mesh bridge (100% PDR, 4.06 ms latency).
+- 🗄️ **[Phase 4 — Host luxd Ingest Proxy](archive/research/host/luxd-ingest/README.md)** — Symbol dictionary de-tokenization & SQLite storage.
+- 🖥️ **[Phase 5 — Web Dashboard](archive/research/host/web-dashboard/README.md)** — Live WebSocket bridge & in-browser `DataView` Chart.js rendering.
 
 ---
 
-## Quickstart — ESP32 Research Lab
+## Historical Research Lab Archive
 
-See [`research/README.md`](research/README.md) for the ordered research plan with two ESP32 boards.
+See [`archive/research/README.md`](archive/research/README.md) for the original research benchmarks with ESP32 hardware.
 
 ---
 
