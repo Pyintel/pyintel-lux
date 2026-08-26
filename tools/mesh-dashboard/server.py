@@ -10,6 +10,9 @@ import json
 import asyncio
 import argparse
 import threading
+import http.server
+import functools
+import pathlib
 import serial
 import serial.tools.list_ports
 import websockets
@@ -21,6 +24,9 @@ SYMBOL_NAMES = {
     0x0004: "LUX_SYM_TRANSPORT_SWITCH",
     0x0005: "LUX_SYM_DEVICE_INFO",
     0x0006: "LUX_SYM_PIN_REPORT",
+    0x0007: "LUX_SYM_BORDER_LOCK",
+    0x0008: "LUX_SYM_BORDER_UNLOCK",
+    0x0009: "LUX_SYM_BORDER_KNOCK",
     0x0201: "SYM_PING",
     0x0202: "SYM_PONG",
     0x0301: "SYM_SENSOR_TEMP",
@@ -28,16 +34,33 @@ SYMBOL_NAMES = {
     0x0310: "SYM_UNO_POT_VAL",
     0x0320: "SYM_PICO_TEMP",
     0x0321: "SYM_PICO_LED_CMD",
+    0x0330: "SYM_CLUE_TEMP",
+    0x0331: "SYM_CLUE_BUTTON_A",
+    0x0332: "SYM_CLUE_BUTTON_B",
+    0x0333: "SYM_CLUE_LED_CMD",
+    0x0340: "SYM_UBIT_TEMP",
+    0x0341: "SYM_UBIT_BUTTON_A",
+    0x0342: "SYM_UBIT_BUTTON_B",
+    0x0343: "SYM_UBIT_ANALOG_P0",
+    0x0344: "SYM_UBIT_LED_CMD",
+    0x0350: "SYM_ESP32_TEMP",
+    0x0351: "SYM_ESP32_HALL",
+    0x0352: "SYM_ESP32_HEAP",
+    0x0353: "SYM_ESP32_LED_CMD",
+    0x0360: "SYM_ESP32S3_TEMP",
+    0x0361: "SYM_ESP32S3_HEAP",
+    0x0362: "SYM_ESP32S3_LED_CMD",
     0x0401: "SYM_ALERT_TRIGGER",
 }
 
 class MeshBridge:
-    def __init__(self, port="COM9", baud=115200, ws_port=8765):
-        self.port = port
+    def __init__(self, target_port="auto", baud=115200, ws_port=8765):
+        self.target_port = target_port
         self.baud = baud
         self.ws_port = ws_port
         self.clients = set()
-        self.ser = None
+        self.active_serials = {}  # port -> Serial instance
+        self.active_threads = {}  # port -> Thread instance
         self.running = True
         self.local_node_id = None
 
@@ -48,8 +71,32 @@ class MeshBridge:
         self.last_rate_calc = time.time()
 
     def start_serial_thread(self, loop):
-        threading.Thread(target=self.serial_worker, args=(loop,), daemon=True).start()
+        threading.Thread(target=self.port_scanner_worker, args=(loop,), daemon=True).start()
         threading.Thread(target=self.prune_worker, args=(loop,), daemon=True).start()
+
+    def port_scanner_worker(self, loop):
+        """Continuously discover and connect to all active USB serial boards (multi-node ingest)"""
+        while self.running:
+            try:
+                all_ports = serial.tools.list_ports.comports()
+                valid_ports = [
+                    p.device for p in all_ports 
+                    if "BTHENUM" not in p.hwid and "BTH" not in p.hwid and p.device != "COM12"
+                ]
+
+                if self.target_port != "auto":
+                    targets = [self.target_port] if self.target_port in valid_ports else []
+                else:
+                    targets = valid_ports
+
+                for port in targets:
+                    if port not in self.active_threads or not self.active_threads[port].is_alive():
+                        t = threading.Thread(target=self.single_port_worker, args=(port, loop), daemon=True)
+                        self.active_threads[port] = t
+                        t.start()
+            except Exception as e:
+                pass
+            time.sleep(1.5)
 
     def prune_worker(self, loop):
         """Periodically prune nodes that haven't sent a packet in > 3.5 seconds"""
@@ -76,31 +123,45 @@ class MeshBridge:
                 }
                 asyncio.run_coroutine_threadsafe(self.broadcast(json.dumps(payload)), loop)
 
-    def serial_worker(self, loop):
-        while self.running:
+    def single_port_worker(self, port, loop):
+        ser = None
+        try:
+            print(f"Connecting to Serial on {port} @ {self.baud} baud...", flush=True)
+            ser = serial.Serial(port, self.baud, timeout=0.1)
+            ser.dtr = True
+            ser.rts = True
+            self.active_serials[port] = ser
+            print(f"✅ Serial connected on {port}!", flush=True)
+
+            line_buf = ""
+            while self.running:
+                raw = ser.read(ser.in_waiting or 1)
+                if raw:
+                    text = raw.decode("utf-8", errors="replace")
+                    line_buf += text
+                    while "\n" in line_buf:
+                        line, line_buf = line_buf.split("\n", 1)
+                        line = line.strip("\r")
+                        if line:
+                            self.process_line(line, loop, port=port)
+        except Exception as e:
+            print(f"⚠️ Serial connection closed on {port}: {e}", flush=True)
+        finally:
+            if port in self.active_serials:
+                try:
+                    self.active_serials[port].close()
+                except:
+                    pass
+                del self.active_serials[port]
+
+    def write_all(self, data: bytes):
+        for port, ser in list(self.active_serials.items()):
             try:
-                print(f"Connecting to Serial on {self.port} @ {self.baud} baud...", flush=True)
-                self.ser = serial.Serial(self.port, self.baud, timeout=0.1)
-                self.ser.dtr = True
-                self.ser.rts = True
-                print(f"✅ Serial connected on {self.port}!", flush=True)
+                ser.write(data)
+            except Exception:
+                pass
 
-                line_buf = ""
-                while self.running:
-                    raw = self.ser.read(self.ser.in_waiting or 1)
-                    if raw:
-                        text = raw.decode("utf-8", errors="replace")
-                        line_buf += text
-                        while "\n" in line_buf:
-                            line, line_buf = line_buf.split("\n", 1)
-                            line = line.strip("\r")
-                            if line:
-                                self.process_line(line, loop)
-            except Exception as e:
-                print(f"⚠️ Serial error: {e}, reconnecting in 1s...", flush=True)
-                time.sleep(1.0)
-
-    def process_line(self, line, loop):
+    def process_line(self, line, loop, port=""):
         now = time.time()
         self.total_msgs += 1
         self.rate_count += 1
@@ -178,9 +239,9 @@ class MeshBridge:
             if not val_clean:
                 val_clean = val_raw
 
-            if sym_id == 0x0320:
+            if sym_id in (0x0320, 0x0330, 0x0340):
                 try:
-                    val_clean = f"{float(val_clean):.1f} °C"
+                    val_clean = f"{float(val_clean):.2f} °C"
                 except:
                     pass
 
@@ -280,38 +341,50 @@ class MeshBridge:
                 # Handle commands from browser (e.g. ping, list)
                 req = json.loads(message)
                 action = req.get("action")
-                if action == "list" and self.ser:
-                    self.ser.write(b"l\n")
-                elif action == "ping" and self.ser:
-                    self.ser.write(b"p\n")
+                if action == "list":
+                    self.write_all(b"l\n")
+                elif action == "ping":
+                    self.write_all(b"p\n")
+                elif action == "border_lock":
+                    self.write_all(b"b\n")
+                elif action == "border_unlock":
+                    self.write_all(b"u\n")
+                elif action == "knock":
+                    self.write_all(b"k\n")
         except:
             pass
         finally:
             self.clients.discard(websocket)
             print(f"Browser client disconnected (remaining: {len(self.clients)})", flush=True)
 
+def start_http_server(port, directory):
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(directory))
+    httpd = http.server.ThreadingHTTPServer(("0.0.0.0", port), handler)
+    httpd.serve_forever()
+
 async def main():
-    parser = argparse.ArgumentParser(description="Pyintel Lux Mesh WebSocket Bridge")
-    parser.add_argument("--port", default="auto", help="Serial COM port (default: auto)")
+    parser = argparse.ArgumentParser(description="Pyintel Lux Mesh WebSocket Bridge & Dashboard")
+    parser.add_argument("--port", default="auto", help="Serial COM port (default: auto - multi-port auto discover)")
     parser.add_argument("--baud", type=int, default=115200, help="Baud rate")
     parser.add_argument("--ws-port", type=int, default=8765, help="WebSocket port")
+    parser.add_argument("--http-port", type=int, default=8080, help="HTTP dashboard port (default: 8080)")
     args = parser.parse_args()
 
-    port = args.port
-    if port == "auto" or not any(p.device == port for p in serial.tools.list_ports.comports()):
-        available = [p.device for p in serial.tools.list_ports.comports()]
-        if "COM9" in available:
-            port = "COM9"
-        elif available:
-            port = available[0]
-        else:
-            port = "COM9"
+    # Start HTTP server for dashboard in background thread
+    dash_dir = pathlib.Path(__file__).resolve().parent
+    threading.Thread(target=start_http_server, args=(args.http_port, dash_dir), daemon=True).start()
 
-    bridge = MeshBridge(port=port, baud=args.baud, ws_port=args.ws_port)
+    bridge = MeshBridge(target_port=args.port, baud=args.baud, ws_port=args.ws_port)
     loop = asyncio.get_running_loop()
     bridge.start_serial_thread(loop)
 
-    print(f"Pyintel Lux Mesh Bridge live on ws://localhost:{args.ws_port}", flush=True)
+    print("=" * 60, flush=True)
+    print("🚀 Pyintel Lux Mesh Swarm Dashboard is LIVE!", flush=True)
+    print(f"📡 Serial Ingest : Auto-discovering all USB serial nodes @ {args.baud} baud", flush=True)
+    print(f"⚡ WebSocket Hub : ws://localhost:{args.ws_port}", flush=True)
+    print(f"🌐 Web UI       : http://localhost:{args.http_port}", flush=True)
+    print("=" * 60, flush=True)
+
     async with websockets.serve(bridge.handler, "0.0.0.0", args.ws_port):
         await asyncio.Future()
 

@@ -7,6 +7,8 @@
 #include "lux/transports/transport_serial.h"
 #include "lux/transports/transport_espnow.h"
 #include "lux/transports/transport_wifi_udp.h"
+#include "lux/transports/transport_ble.h"
+#include "lux/transports/transport_nrf_radio.h"
 
 LuxClass Lux;
 
@@ -32,6 +34,12 @@ LuxClass::LuxClass()
       _flush_timeout_ms(10),
       _is_initialized(false),
       _mesh_active(false),
+      _border_locked(false),
+      _auto_heal_enabled(true),
+      _auto_heal_timeout_ms(8000),
+      _boot_time_ms(0),
+      _last_peer_packet_ms(0),
+      _auto_seal_deadline_ms(0),
       _net_hash(0),
       _node_id(0x0042),
       _mesh_seq(0),
@@ -141,6 +149,20 @@ lux_status_t LuxClass::beginMesh(const char *network_uuid, const char *wifi_ssid
         if (lux_transport_wifi_udp.init(&cfg)) {
             _transports[_transport_count++] = &lux_transport_wifi_udp;
         }
+    }
+#endif
+
+#if LUX_HAS_BLE
+    // 4. Register BLE transport (Nordic nRF52 / ESP32)
+    if (lux_transport_ble.init(nullptr)) {
+        _transports[_transport_count++] = &lux_transport_ble;
+    }
+#endif
+
+#if LUX_HAS_NRF_RADIO
+    // 5. Register Nordic 2.4GHz Hardware Radio (BBC micro:bit / Adafruit CLUE)
+    if (lux_transport_nrf_radio.init(nullptr)) {
+        _transports[_transport_count++] = &lux_transport_nrf_radio;
     }
 #endif
 
@@ -396,6 +418,9 @@ void LuxClass::list(Stream &out) {
 #if LUX_HAS_WIFI_UDP
     out.print(F("+WiFi"));
 #endif
+#if LUX_HAS_NRF_RADIO
+    out.print(F("+nRF-Radio"));
+#endif
     out.print(F(" (ME)           │   0   │ "));
     out.print(millis() / 1000);
     out.print(F("s   │ ● LIVE │\n"));
@@ -411,6 +436,7 @@ void LuxClass::list(Stream &out) {
 
         if (_peers[i].transports & LUX_FLAG_TRANSPORT_ESPNOW) out.print(F("ESP-NOW "));
         if (_peers[i].transports & LUX_FLAG_TRANSPORT_WIFI_UDP) out.print(F("WiFi-UDP "));
+        if (_peers[i].transports & LUX_FLAG_TRANSPORT_NRF_RADIO) out.print(F("nRF-Radio "));
         if (_peers[i].transports & LUX_FLAG_TRANSPORT_SERIAL) out.print(F("Serial "));
 
         out.print(F("         │  "));
@@ -504,6 +530,27 @@ lux_status_t LuxClass::tick() {
     if (!_is_initialized) return LUX_ERR_NULL;
 
     uint32_t now = millis();
+    if (_boot_time_ms == 0) {
+        _boot_time_ms = now;
+        _last_peer_packet_ms = now;
+    }
+
+    // 0. Auto-Seal Temporary Rendezvous Window Check
+    if (_auto_seal_deadline_ms > 0 && now >= _auto_seal_deadline_ms) {
+        _auto_seal_deadline_ms = 0;
+        initBorder();
+    }
+
+    // 0.1 Auto-Healing Watchdog Check: if locked and lost all peers, heal network
+    if (_mesh_active && _border_locked && _auto_heal_enabled && _peer_count > 0) {
+        if (now - _last_peer_packet_ms > _auto_heal_timeout_ms) {
+            unlockBorder();
+            knock();
+            if (_debug_enabled && _debug_stream) {
+                _debug_stream->println(F("🩹 [AUTO-HEAL TRIGGERED] Link lost. Promiscuous discovery re-enabled."));
+            }
+        }
+    }
 
     // 1. Heartbeat generator
     if (_heartbeat_interval_ms > 0 && (now - _last_heartbeat_ms >= _heartbeat_interval_ms)) {
@@ -549,6 +596,7 @@ lux_status_t LuxClass::tick() {
                     continue;
                 }
 
+                _last_peer_packet_ms = now;
                 uint8_t *payload_ptr = rx_buf + LUX_MESH_HEADER_SIZE + LUX_HEADER_SIZE;
                 uint8_t payload_len = inner->payload_len;
 
@@ -569,6 +617,36 @@ lux_status_t LuxClass::tick() {
 
                 // Deliver to local handlers if addressed to us or broadcast
                 if (env->dst_node == _node_id || env->dst_node == LUX_NODE_BROADCAST) {
+                    // System Border Lock / Unlock Handlers
+                    if (inner->symbol_id == LUX_SYM_BORDER_LOCK && !_border_locked) {
+                        _border_locked = true;
+                        // Power down unused transports
+                        uint8_t active_mask = 0;
+                        for (uint8_t p = 0; p < _peer_count; p++) {
+                            if (_peers[p].alive) active_mask |= _peers[p].transports;
+                        }
+                        active_mask |= LUX_FLAG_TRANSPORT_SERIAL;
+                        for (uint8_t t = 0; t < _transport_count; t++) {
+                            if (_transports[t] && !(active_mask & (1 << _transports[t]->id))) {
+                                if (_transports[t]->deinit) _transports[t]->deinit();
+                            }
+                        }
+                    } else if (inner->symbol_id == LUX_SYM_BORDER_UNLOCK && _border_locked) {
+                        _border_locked = false;
+                        for (uint8_t t = 0; t < _transport_count; t++) {
+                            if (_transports[t] && _transports[t]->init) _transports[t]->init(nullptr);
+                        }
+                    } else if (inner->symbol_id == LUX_SYM_BORDER_KNOCK) {
+                        // Straggler join knock received: open 6-second rendezvous window
+                        if (_border_locked) {
+                            unlockBorder();
+                            _auto_seal_deadline_ms = now + 6000;
+                            if (_debug_enabled && _debug_stream) {
+                                _debug_stream->println(F("🚪 [RENDEZVOUS WINDOW OPENED] Admitting new node for 6s."));
+                            }
+                        }
+                    }
+
                     dispatchMessage(env->src_node, inner->symbol_id, payload_ptr, payload_len);
                 }
 
@@ -822,3 +900,79 @@ void LuxClass::disableTimer1Interrupt() {
     TIMSK1 &= ~(1 << OCIE1A);
 }
 #endif
+
+/* ── Topology Border Lock & Battery Saver Implementation ──────────── */
+void LuxClass::initBorder() {
+    if (!_is_initialized) return;
+    _border_locked = true;
+
+    // Broadcast LUX_SYM_BORDER_LOCK (0x0007) so all peers freeze simultaneously
+    uint8_t flags = 0x01;
+    broadcast(LUX_SYM_BORDER_LOCK, flags);
+
+    // Identify which transports have active peers
+    uint8_t active_mask = 0;
+    for (uint8_t p = 0; p < _peer_count; p++) {
+        if (_peers[p].alive) {
+            active_mask |= _peers[p].transports;
+        }
+    }
+    active_mask |= LUX_FLAG_TRANSPORT_SERIAL; // Keep serial for host UI
+
+    // Power down unused radio transports for maximum power savings
+    for (uint8_t i = 0; i < _transport_count; i++) {
+        if (_transports[i]) {
+            if (!(active_mask & (1 << _transports[i]->id))) {
+                if (_transports[i]->deinit) {
+                    _transports[i]->deinit();
+                }
+            }
+        }
+    }
+
+    if (_debug_enabled && _debug_stream) {
+        _debug_stream->println(F("🛡️ [BORDER LOCKED] Topology frozen. Unused radios powered down for battery savings."));
+    }
+}
+
+void LuxClass::unlockBorder() {
+    if (!_is_initialized) return;
+    _border_locked = false;
+
+    // Re-initialize all transports back into promiscuous discovery
+    for (uint8_t i = 0; i < _transport_count; i++) {
+        if (_transports[i] && _transports[i]->init) {
+            _transports[i]->init(nullptr);
+        }
+    }
+
+    uint8_t flags = 0x00;
+    broadcast(LUX_SYM_BORDER_UNLOCK, flags);
+
+    if (_debug_enabled && _debug_stream) {
+        _debug_stream->println(F("🔓 [BORDER UNLOCKED] Promiscuous multi-bearer discovery resumed."));
+    }
+}
+
+void LuxClass::knock() {
+    if (!_is_initialized) return;
+
+    // Ensure all transports are briefly initialized to transmit the knock
+    for (uint8_t i = 0; i < _transport_count; i++) {
+        if (_transports[i] && _transports[i]->init) {
+            _transports[i]->init(nullptr);
+        }
+    }
+
+    uint8_t caps = 0xFF;
+    broadcast(LUX_SYM_BORDER_KNOCK, caps);
+
+    if (_debug_enabled && _debug_stream) {
+        _debug_stream->println(F("🚪 [KNOCK TRANSMITTED] Requesting rendezvous window from locked peers."));
+    }
+}
+
+void LuxClass::setAutoHealing(bool enable, uint32_t timeout_ms) {
+    _auto_heal_enabled = enable;
+    _auto_heal_timeout_ms = timeout_ms ? timeout_ms : 8000;
+}

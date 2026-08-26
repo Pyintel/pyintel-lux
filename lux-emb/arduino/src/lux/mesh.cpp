@@ -94,6 +94,12 @@ uint16_t lux_generate_node_id(void) {
     eeprom_write_word((uint16_t *)0, noise);
     return noise;
 
+#elif defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(ARDUINO_NRF52_ADAFRUIT) || defined(NRF51) || defined(ARDUINO_ARCH_NRF51)
+    uint32_t dev_addr[2];
+    dev_addr[0] = NRF_FICR->DEVICEADDR[0];
+    dev_addr[1] = NRF_FICR->DEVICEADDR[1];
+    return calc_id_crc16((const uint8_t *)dev_addr, 8);
+
 #else
     return 0x0042; // Generic fallback
 #endif

@@ -12,7 +12,7 @@
 #include <esp_now.h>
 #include <esp_wifi.h>
 
-#define ESPNOW_QUEUE_SIZE 4
+#define ESPNOW_QUEUE_SIZE 16
 #define ESPNOW_MAX_PKT_LEN 160
 
 typedef struct {
@@ -31,7 +31,7 @@ static uint8_t s_bcast_mac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
 static void on_esp_now_recv(const esp_now_recv_info_t *info, const uint8_t *data, int data_len) {
     if (!data || data_len <= 0 || data_len > ESPNOW_MAX_PKT_LEN) return;
-    if (s_queue_count >= ESPNOW_QUEUE_SIZE) return; // Drop on overflow
+    if (s_queue_count >= ESPNOW_QUEUE_SIZE) return;
 
     uint8_t head = s_queue_head;
     memcpy(s_espnow_queue[head].data, data, (size_t)data_len);
@@ -63,6 +63,9 @@ static bool espnow_init(void *config) {
     if (s_espnow_initialized) return true;
 
     WiFi.mode(WIFI_STA);
+    WiFi.disconnect();
+    esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+
     if (esp_now_init() != ESP_OK) {
         return false;
     }
@@ -70,7 +73,7 @@ static bool espnow_init(void *config) {
     esp_now_peer_info_t peer_info;
     memset(&peer_info, 0, sizeof(peer_info));
     memcpy(peer_info.peer_addr, s_bcast_mac, 6);
-    peer_info.channel = 0;
+    peer_info.channel = 1;
     peer_info.encrypt = false;
     esp_now_add_peer(&peer_info);
 

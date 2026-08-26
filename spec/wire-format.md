@@ -77,6 +77,11 @@ Reserved ranges:
 | `0x0002` | `LUX_SYM_RESET` | u8 (reset cause) | Device reset event |
 | `0x0003` | `LUX_SYM_OVERFLOW` | u16 (dropped count) | Frame buffer overflow |
 | `0x0004` | `LUX_SYM_TRANSPORT_SWITCH` | u8 (new transport ID) | Transport fallback event |
+| `0x0005` | `LUX_SYM_DEVICE_INFO` | bytes (caps) | Device hardware capability report |
+| `0x0006` | `LUX_SYM_PIN_REPORT` | bytes (pin, mode, val) | Hardware pin state report |
+| `0x0007` | `LUX_SYM_BORDER_LOCK` | u8 (flags / 0=freeze) | Freeze topology, power-down unused radios for battery saving |
+| `0x0008` | `LUX_SYM_BORDER_UNLOCK` | u8 (0x00) | Resume promiscuous discovery across all transports |
+| `0x0009` | `LUX_SYM_BORDER_KNOCK` | u8 (capabilities) | Straggler join knock — temporarily opens 6s commissioning window |
 
 ---
 

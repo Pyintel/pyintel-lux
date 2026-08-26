@@ -91,6 +91,29 @@ public:
     void debug(bool enable, Stream &output = Serial);
     void setDebugVerbosity(lux_debug_level_t level) { _debug_level = level; }
 
+    /* ── Topology Border Lock & Battery Saver API ────────────────────── */
+    /**
+     * Initializes network border: broadcasts a topology freeze frame to the entire mesh.
+     * All nodes freeze their learned peer routes and power down unused radio protocols
+     * (shutting off Wi-Fi/BLE/scan engines) to save massive battery power.
+     */
+    void initBorder();
+    void lockTopology() { initBorder(); }
+    void sealBorder()   { initBorder(); }
+
+    void unlockBorder();
+    void openBorder()   { unlockBorder(); }
+    bool isBorderLocked() const { return _border_locked; }
+
+    /* ── Auto-Healing & Rendezvous Knock ─────────────────────────────── */
+    /**
+     * Broadcasts a join knock over all radios to request an open rendezvous window
+     * from any locked neighbors.
+     */
+    void knock();
+    void setAutoHealing(bool enable = true, uint32_t timeout_ms = 8000);
+    bool isAutoHealingEnabled() const { return _auto_heal_enabled; }
+
     /* ── Core Background Engine ──────────────────────────────────────── */
     lux_status_t tick();
     lux_status_t flush();
@@ -150,6 +173,12 @@ private:
 
     /* Mesh State */
     bool               _mesh_active;
+    bool               _border_locked;
+    bool               _auto_heal_enabled;
+    uint32_t           _auto_heal_timeout_ms;
+    uint32_t           _boot_time_ms;
+    uint32_t           _last_peer_packet_ms;
+    uint32_t           _auto_seal_deadline_ms;
     uint32_t           _net_hash;
     uint16_t           _node_id;
     uint16_t           _mesh_seq;

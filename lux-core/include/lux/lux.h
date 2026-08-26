@@ -26,6 +26,9 @@ extern "C" {
 #define LUX_SYM_TRANSPORT_SWITCH 0x0004
 #define LUX_SYM_DEVICE_INFO      0x0005
 #define LUX_SYM_PIN_REPORT       0x0006
+#define LUX_SYM_BORDER_LOCK      0x0007
+#define LUX_SYM_BORDER_UNLOCK    0x0008
+#define LUX_SYM_BORDER_KNOCK     0x0009
 
 /* ── Reserved system command IDs (Apex Studio Control) ──────────────── */
 #define LUX_CMD_PIN_MODE         0x0010
