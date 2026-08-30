@@ -1,0 +1,6 @@
+[submodule "lux-emb/arduino"]
+	path = lux-emb/arduino
+	url = https://github.com/Pyintel/pyintel-lux-arduino.git
+[submodule "lux-emb/platformio"]
+	path = lux-emb/platformio
+	url = https://github.com/Pyintel/pyintel-lux-platformio.git
