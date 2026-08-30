@@ -7,6 +7,7 @@
 #######################################
 
 Lux	KEYWORD1
+Pyintel_Lux	KEYWORD1
 LuxClass	KEYWORD1
 LuxPeer	KEYWORD1
 lux_ctx_t	KEYWORD1
