@@ -1,0 +1,38 @@
+name: Feature Request
+description: Suggest an idea or enhancement for Pyintel Lux
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Feature Summary
+      description: A clear and concise description of the feature or enhancement you're proposing.
+      placeholder: Describe the feature...
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Target Component
+      description: Which area does this feature belong to?
+      options:
+        - MCU SDK (Arduino / PlatformIO / Rust)
+        - Hardware Transport Bearer (CAN, LoRa, BLE, etc.)
+        - Host Ingest Daemon (luxd)
+        - Web / WASM Decoder (@pyintel/lux-web)
+        - Wire Specification
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Problem & Motivation
+      description: Is your feature request related to a problem? Explain why this feature is useful.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe how you envision this working or being implemented.

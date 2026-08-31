@@ -1,0 +1,55 @@
+name: Bug Report
+description: Create a report to help us fix a bug or unexpected behavior in Pyintel Lux
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+      placeholder: Describe what happened...
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of Pyintel Lux is affected?
+      options:
+        - Arduino Library (Pyintel_Lux)
+        - PlatformIO Package
+        - C / Rust Core (lux-emb)
+        - Host Ingest Daemon (luxd)
+        - Mesh Transport Layer
+        - Specification / Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Hardware & Environment
+      description: Board model, MCU architecture, OS, toolchain version, etc.
+      placeholder: |
+        - Board: ESP32-S3 / RP2040 / Arduino Uno
+        - Framework: Arduino / PlatformIO / ESP-IDF
+        - Transport: USB Serial / ESP-NOW / UDP
+        - OS: Windows 11 / Ubuntu / macOS
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior.
+      placeholder: |
+        1. Initialize Lux with `lux.beginMesh(...)`
+        2. Send packet using ...
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or Output
+      description: Copy serial logs, terminal output, or backtraces here if applicable.
